@@ -53,11 +53,11 @@ git clone https://github.com/Physical-Intelligence/openpi.git
 cd openpi
 uv sync
 XLA_PYTHON_CLIENT_MEM_FRACTION=0.5 uv run scripts/serve_policy.py policy:checkpoint \
-    --policy.config=pi0_fast_droid_jointpos \
+    --policy.config=pi0_fast_droid_jointpos_polaris \
     --policy.dir=gs://openpi-assets/checkpoints/pi0_fast_droid_jointpos
 
 # [ALTERNATIVE] running the latest pi0.5 in jointpos mode:
-uv run scripts/serve_policy.py policy:checkpoint \
+XLA_PYTHON_CLIENT_MEM_FRACTION=0.5 uv run scripts/serve_policy.py policy:checkpoint \
     --policy.config=pi05_droid_jointpos_polaris \
     --policy.dir=gs://openpi-assets/checkpoints/polaris/pi05_droid_jointpos_polaris
 ```
