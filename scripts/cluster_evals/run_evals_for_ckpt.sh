@@ -8,8 +8,9 @@ fi
 CHECKPOINT_NAME=$1
 POLICY_CONFIG="$2"
 CHECKPOINT_PATH="$3"
-BASE_PORT="$4"
-EXPERIMENT_NAME="dummy_trial"
+POLICY_RUN_DIR="$4"
+BASE_PORT="$5"
+EXPERIMENT_NAME="minimal_1600"
 RUN_ID=$(date +%Y%m%d_%H%M%S)
 
 
@@ -28,5 +29,6 @@ do
       "$CHECKPOINT_PATH" \
       "$BASE_PORT" \
       "$EXPERIMENT_NAME" \
-      "$RUN_ID"
+      "$RUN_ID" \
+      "$POLICY_RUN_DIR"
 done

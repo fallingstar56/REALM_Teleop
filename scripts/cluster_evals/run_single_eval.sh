@@ -22,6 +22,7 @@ POLICY_CONFIG="$5"
 CHECKPOINT_PATH="$6"
 BASE_PORT="$7"
 EXPERIMENT_NAME="$8"
+POLICY_RUN_DIR="$9"
 
 REALM_ROOT=$(pwd)
 
@@ -34,8 +35,7 @@ export HUGGINGFACE_HUB_CACHE=$REALM_ROOT/hf_cache
 export XDG_CACHE_HOME=$REALM_ROOT/python_cache
 export XLA_PYTHON_CLIENT_MEM_FRACTION=0.25
 
-POLICY_RUN_DIR="/mnt/home_lustre/sedlam56/projects/openpi" # TODO: pass arg
-POLICY_SCRIPT="${POLICY_RUN_DIR}/scripts/serve_policy.py"
+POLICY_SCRIPT="${POLICY_RUN_DIR}/scripts/serve_policy.py" # TODO: assuming default openppi repo
 port=$((BASE_PORT + SLURM_ARRAY_TASK_ID + 100 * TASK_ID))
 
 cd "$POLICY_RUN_DIR"
