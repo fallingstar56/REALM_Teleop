@@ -162,7 +162,7 @@ def evaluate(
             "binary_SR": 1.0 if task_progression == 1.0 else 0.0
         })
 
-        save_filename = os.path.join(log_dir, "videos", f"{timestamp}_{model}_rollout_{task}_{perturbations}_{run_id}")
+        save_filename = os.path.join(log_dir, "videos", f"{timestamp}_{model}_rollout_{task}_{perturbations[0]}_{run_id}")
         video_recorder.save_video(save_filename)
         video_recorder.cleanup()
 
