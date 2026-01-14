@@ -2,8 +2,9 @@
 #SBATCH --job-name omnigibson-test
 #SBATCH --partition=l40s
 #SBATCH --gpus=1
-#SBATCH --mem=40G
+#SBATCH --mem=120G
 #SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-gpu=32
 #SBATCH --time 00-04:30:00
 
 #---------------------------------------------------------------------------------
