@@ -11,6 +11,7 @@
 
 DEBUG=false
 MULTI_VIEW=false
+RENDERING_MODE_FLAG=""
 
 while [[ "$#" -gt 0 ]]; do
   case $1 in
@@ -26,6 +27,7 @@ while [[ "$#" -gt 0 ]]; do
     --run_id) RUN_ID="$2"; shift 2 ;;
     --debug) DEBUG=true; shift 1;;
     --multi-view) MULTI_VIEW=true; shift 1;;
+    --rendering_mode) RENDERING_MODE_FLAG="--rendering_mode $2"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -99,4 +101,5 @@ apptainer exec \
   --port $port \
   --run_id $RUN_ID \
   --experiment_name $EXPERIMENT_NAME \
-  --multi-view $MULTI_VIEW
+  --multi-view $MULTI_VIEW \
+  $RENDERING_MODE_FLAG

@@ -12,6 +12,7 @@ RUN_ID=$(date +%Y%m%d_%H%M%S)
 DEBUG=false
 MULTI_VIEW_FLAG=""
 RESUME=false
+RENDERING_MODE_FLAG=""
 
 expand_ids() {
   echo "$1" | tr ',' '\n' | while read -r r; do
@@ -34,6 +35,7 @@ while [[ "$#" -gt 0 ]]; do
     --multi-view) MULTI_VIEW_FLAG="--multi-view"; shift 1;;
     --resume) RESUME=true; shift 1 ;;
     --run_id) RUN_ID="$2"; shift 2 ;;
+    --rendering-mode) RENDERING_MODE_FLAG="--rendering_mode $2"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -125,6 +127,7 @@ for i in "${TASK_IDS[@]}"; do
       --experiment_name "$EXPERIMENT_NAME" \
       --run_id "$RUN_ID" \
       $debug_flag \
-      $MULTI_VIEW_FLAG
+      $MULTI_VIEW_FLAG \
+      $RENDERING_MODE_FLAG
   done
 done

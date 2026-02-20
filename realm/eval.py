@@ -73,7 +73,8 @@ def evaluate(
         port=8000,
         log_dir="/app/logs",
         resume=False,
-        multi_view=False
+        multi_view=False,
+        rendering_mode=None
 ):
     start = time.perf_counter()
     og.log.info(f"DEBUG: Begin eval: {time.perf_counter() - start:.4f}s")
@@ -93,7 +94,8 @@ def evaluate(
         config_path="/app/realm/config",
         task=task,
         perturbations=perturbations,
-        multi_view=multi_view
+        multi_view=multi_view,
+        rendering_mode=rendering_mode
     )
     og.log.info(f"DEBUG: Env created: {time.perf_counter() - start:.4f}s")
 

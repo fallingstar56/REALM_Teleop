@@ -25,7 +25,7 @@ from omnigibson.prims.joint_prim import JointPrim
 
 
 MISSING_PERTURBATIONS = ["V-OBJ", "VB-ISC", "VS-PROP", "SB-ADV", "SB-SMO"]
-SUPPORTED_TASK_TYPES = ["put", "pick", "rotate", "push", "stack"]# TODO: "open_close_drawer", "turn_faucet"
+SUPPORTED_TASK_TYPES = ["put", "pick", "rotate", "push", "stack", "open_drawer", "close_drawer"]
 
 
 class RealmEnvironmentDynamic(RealmEnvironmentBase):
@@ -39,10 +39,12 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         perturbations=None,
         use_droid_with_base=True,
         common_freq: int = None,
-        multi_view: bool = False
+        multi_view: bool = False,
+        rendering_mode: str = None
     ) -> None:
         self.use_droid_with_base = use_droid_with_base # TODO: infer from task / scene config
         self.multi_view = multi_view
+        self.rendering_mode = rendering_mode
         if self.use_droid_with_base:
             from realm.robots.franka_robotiq_mounted import FrankaPandaRobotiq
         else:
@@ -61,7 +63,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             "V-VIEW": self.v_view,
             "V-SC": self.v_sc,
             "V-LIGHT": self.v_light,
-            "V-SCENE": None, # TODO
             "S-PROP": self.s_prop,
             "S-LANG": self.s_lang,
             "S-MO": self.s_mo,
@@ -108,6 +109,36 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             raise NotImplementedError()
 
         self.omnigibson_env = og.Environment(configs=[cfg])
+        
+        # Set rendering mode
+        if self.rendering_mode:
+            carb_settings = lazy.carb.settings.get_settings()
+            if self.rendering_mode == "pt":
+                def enable_interactive_path_tracing(carb_settings, samples_per_pixel=8):
+                    carb_settings.set("/rtx/rendermode", "PathTracing")
+                    if samples_per_pixel is not None:
+                        carb_settings.set_int("/rtx/pathtracing/spp", samples_per_pixel)
+                        carb_settings.set_int("/rtx/pathtracing/totalSpp", samples_per_pixel)
+                        carb_settings.set_int(
+                            "/rtx/pathtracing/useDirectLightingCache", False
+                        )  # NOTE: This is to enable lighting cache but can add temporal noise
+                    carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", True)
+
+                carb_settings.set("/persistent/omnihydra/useSceneGraphInstancing", True)
+                enable_interactive_path_tracing(carb_settings, samples_per_pixel=8)
+            elif self.rendering_mode == "r":
+                carb_settings.set("/rtx/rendermode", "RayTracedLighting")
+                carb_settings.set("/rtx/raytracing/enabled", False)
+                carb_settings.set("/rtx/reflections/enabled", False)
+                carb_settings.set("/rtx/translucency/enabled", False)
+                carb_settings.set("/rtx/post/aa/op", 0)
+                 # Assuming "RayTracedShadows" or standard rasterization.
+                 # Often "RayTracedLighting" is the default real-time mode.
+                 # "RayTracedShadows" usually implies rasterization with RT shadows.
+                 # carb_settings.set("/rtx/rendermode", "RayTracedShadows")
+            else:
+                assert self.rendering_mode == "rt", f"rendering mode must be 'pt', 'rt', or 'r'"
+                #carb_settings.set("/rtx/rendermode", "RayTracedLighting")
 
         assert len(self.omnigibson_env.robots) == 1  # assumes single robot, single arm
         self.robot = self.omnigibson_env.robots[0]
@@ -124,8 +155,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             "rot": obj.get_position_orientation()[1]
         } for obj in self.main_objects + self.target_objects + self.distractors}
 
-        # TODO: only for our custom drawer offset
-        if "VSB-NOBJ" in self.active_perturbations:
+        if "VSB-NOBJ" in self.active_perturbations and self.task_type in ["open_drawer", "close_drawer"]:
             self.init_poses[self.main_objects[0]._relative_prim_path]["pos"][-1] += 0.3
 
         if "V-AUG" in self.active_perturbations:
@@ -474,7 +504,12 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         nobj, nobj_cfg = self.replace_obj(self.main_objects[0], included_categories=included_categories, maximum_dim=max_dim, fixed_base=fixed_base_loc, preserve_ori=preserve_ori)
         self.main_objects = [nobj]
 
-        self.instruction = self.cfg["instruction"].replace(self.cfg["instruction_obj_to_replace"], nobj_cfg["category"].replace("_", " "))
+        new_obj_category = nobj_cfg["category"]
+        new_obj_name_clean = new_obj_category.replace("_", " ")
+
+        self.instruction = self.cfg["instruction"].replace(self.cfg["instruction_obj_to_replace"], new_obj_name_clean)
+        og.log.info(f"New instruction: {self.instruction}")
+
         if nobj_cfg["model"] in ["strbnw", "gashan", "qxhtct", "wseglt"]:
             self.main_objects[0].set_orientation(np.array([0, 0, 0.7071068, 0.7071068]))
         # elif nobj_cfg["model"] in ["hpowgy", "hrwnhp", "jophec"]:
@@ -518,28 +553,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                 main_object_names=[],
                 max_attempts_per_object=25000 # TODO: this must be successful, careful what we do here...
             )
-
-            # obj_cfgs = copy.deepcopy(self.cfg["objects"])
-            # num_mo_to = len(self.target_objects + self.main_objects)
-            #
-            # self.cfg["objects"] = None
-            # num_distractors = len(obj_cfgs) - num_mo_to
-            #
-            # while self.cfg["objects"] is None and num_distractors >= 0:
-            #     # TODO: this placement algo is naive and super bad actually, improve this
-            #     self.cfg["objects"] = get_non_colliding_positions_for_objects(
-            #             xmin=self.spawn_bbox[0],
-            #             xmax=self.spawn_bbox[1],
-            #             ymin=self.spawn_bbox[2],
-            #             ymax=self.spawn_bbox[3],
-            #             z=self.spawn_bbox[4],
-            #             obj_cfg=obj_cfgs[:num_mo_to + num_distractors],
-            #             #obj_cfg=self.cfg["objects"],
-            #             objects_to_skip=[obj.name for obj in self.distractors],
-            #             main_object_names=[]
-            #         )
-            #     num_distractors -= 1
-            # assert num_distractors > -1, "Failed to place task objects with 0 distractors. This is not expected - investigate position config in your task or reach out to us."
 
             og.sim.stop()
             for obj_cfg in self.cfg["objects"]:
@@ -639,16 +652,15 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             #adjective = random.choice(["middle", "bottom"])
             self.instruction = self.cfg["instruction"].replace("top", adjective)
             self.reset_joints(target_drawer_loc=adjective)
-            return
+        else:
+            i = np.random.randint(len(self.distractors))
+            new_mo = self.distractors.pop(i)
+            new_obj_for_task = new_mo.category.replace("_", " ")
+            self.instruction = self.cfg["instruction"].replace(self.cfg["instruction_obj_to_replace"], new_obj_for_task)
+            og.log.info(f"New instruction: {self.instruction}")
 
-        i = np.random.randint(len(self.distractors))
-        new_mo = self.distractors.pop(i)
-        new_obj_for_task = new_mo.category
-        self.instruction = self.cfg["instruction"].replace(self.cfg["instruction_obj_to_replace"], new_obj_for_task)
-        self.instruction = self.instruction.replace("_", " ")
-
-        self.distractors.append(self.main_objects[0])
-        self.main_objects[0] = new_mo
+            self.distractors.append(self.main_objects[0])
+            self.main_objects[0] = new_mo
 
 
     def sb_vrb(self):
@@ -668,16 +680,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         new_verb_for_task = random.choice(available_task_types)
         self.task_type = new_verb_for_task
-
-        if new_verb_for_task in ["rotate", "push", "pick", "open", "close"]:
-            tmp = "pick up" if new_verb_for_task == "pick" else new_verb_for_task
-            self.instruction = f"{tmp} the {self.cfg['instruction_obj_to_replace']}"
-        elif new_verb_for_task == "stack":
-            self.instruction = f"stack the {self.cfg['instruction_obj_to_replace']} on top of the {self.cfg['instruction_target_to_replace']}"
-        elif new_verb_for_task == "put":
-            self.instruction = f"put the {self.cfg['instruction_obj_to_replace']} into the {self.cfg['instruction_target_to_replace']}"
-        else:
-            raise NotImplementedError()
         self.task_progression = TASK_PROGRESSIONS[self.task_type]
 
         included_categories = None
@@ -737,15 +739,28 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                 self.omnigibson_env.scene.object_registry("name", obj["name"]).set_position(obj["position"])
 
         og.sim.step()
+
         if self.task_type in ["put", "stack"]:
             og.sim.stop()
-            # --------------- Replace the objects models ---------------
-            nobj, _ = self.replace_obj(self.target_objects[0], included_categories=included_categories, maximum_dim=0.185)
+            nobj, nobj_cfg = self.replace_obj(self.target_objects[0], included_categories=included_categories, maximum_dim=0.185)
             self.target_objects = [nobj]
+            self.cfg['instruction_target_to_replace'] = nobj_cfg["category"]
             og.sim.play()
             # fake rest to get to original pose after stopping sim
             for _ in range(30):
                 self.omnigibson_env.step(np.concatenate((self.reset_qpos[:7], np.atleast_1d(np.array([-1])))))
+
+        if new_verb_for_task in ["rotate", "push", "pick", "open", "close"]:
+            tmp = "pick up" if new_verb_for_task == "pick" else new_verb_for_task
+            self.instruction = f"{tmp} the {self.cfg['instruction_obj_to_replace']}"
+        elif new_verb_for_task == "stack":
+            self.instruction = f"stack the {self.cfg['instruction_obj_to_replace']} on top of the {self.cfg['instruction_target_to_replace']}"
+        elif new_verb_for_task == "put":
+            self.instruction = f"put the {self.cfg['instruction_obj_to_replace']} into the {self.cfg['instruction_target_to_replace']}"
+        else:
+            raise NotImplementedError()
+        self.instruction = self.instruction.replace("_", " ")
+        og.log.info(f"New instruction: {self.instruction}")
 
     def vb_mobj(self):
         # sample rescaling of the bbox
@@ -872,9 +887,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                 cat_dict.pop(t[0])
             l = [o for v in cat_dict.values() for c in v.values() for o in c]
             l = [c for c in l if c not in excluded_categories]
-            if not l:
-                og.log.warning(f"v_sc: No suitable categories found to replace distractor {distractor.name} (category: {distractor.category}). Skipping.")
-                continue
             _, _ = self.replace_obj(distractor, included_categories=l, maximum_dim=0.12)
 
         og.sim.play()

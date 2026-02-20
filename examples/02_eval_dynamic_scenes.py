@@ -18,6 +18,7 @@ if __name__ == "__main__":
     parser.add_argument('--log_dir', type=str, required=False, default=None)
     parser.add_argument('--multi-view', type=str, default='false', help='Enable multi-view camera (true/false)')
     parser.add_argument('--resume', action='store_true', help='Resume from existing run report if found')
+    parser.add_argument('--rendering_mode', type=str, required=False, default=None, help='Omnigibson rendering mode (pt, rt, r)')
     args = parser.parse_args()
     assert args.model_name is not None
     assert args.experiment_name is not None
@@ -38,7 +39,8 @@ if __name__ == "__main__":
         port=args.port,
         log_dir=log_dir,
         multi_view=multi_view,
-        resume=args.resume
+        resume=args.resume,
+        rendering_mode=args.rendering_mode
     )
     og.shutdown()
     sys.exit(0)
