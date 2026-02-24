@@ -242,7 +242,8 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         else:
             reset_joint_pos[:7] = DEFAULT_RESET_JOINTPOS
 
-        cfg_robot = yaml.load(open(f"{self.config_path}/robots/DROID.yaml", "r"), Loader=yaml.FullLoader)
+        #cfg_robot = yaml.load(open(f"{self.config_path}/robots/DROID.yaml", "r"), Loader=yaml.FullLoader)
+        cfg_robot = yaml.load(open(f"{self.config_path}/robots/DROID_default_pd_control.yaml", "r"), Loader=yaml.FullLoader) # TODO: revert
         cfg_robot["robots"][0]["position"] = robot_pos
         cfg_robot["robots"][0]["orientation"] = omnigibson_transform_utils.euler2quat(
             torch.tensor(robot_rot, dtype=torch.float32)).tolist()

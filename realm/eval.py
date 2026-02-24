@@ -1,17 +1,21 @@
-import numpy as np
-import torch
 from queue import Queue
 import datetime
+import time
 import os
+import sys
 import random
-import glob
 import csv
+import argparse
+import numpy as np
+import torch
+
 import omnigibson as og
 from omnigibson.macros import gm
+
 from realm.environments.env_dynamic import RealmEnvironmentDynamic
 from realm.inference import InferenceClient, extract_from_obs
 from realm.logging import VideoRecorder, save_results_to_csv
-import time
+
 
 
 SUPPORTED_TASKS = [
@@ -76,16 +80,20 @@ def evaluate(
         log_dir="/app/logs",
         resume=False,
         multi_view=False,
-        rendering_mode=None
+        rendering_mode=None,
+        task_cfg_path=None
 ):
     start = time.perf_counter()
     og.log.info(f"DEBUG: Begin eval: {time.perf_counter() - start:.4f}s")
     set_sim_config(rendering_mode=rendering_mode)
 
     # -------------------- Create the environment + client --------------------
-    task = SUPPORTED_TASKS[task_id]
-    #task_cfg_path = f"REALM_DROID10/{task}/default.yaml"
-    task_cfg_path = f"IMPACT/pick_spoon/default.yaml" # TODO: revert
+    if task_cfg_path is None:
+        task = SUPPORTED_TASKS[task_id]
+        task_cfg_path = f"REALM_DROID10/{task}/default.yaml"
+    else:
+        task = task_cfg_path.split("/")[-2]
+
     perturbations = [SUPPORTED_PERTURBATIONS[perturbation_id]]
 
     os.makedirs(log_dir, exist_ok=True)
@@ -318,3 +326,46 @@ def evaluate(
     save_results_to_csv(results, log_dir+"/reports", task, perturbations[0])
     og.log.info("Done!")
     og.log.info(f"DEBUG: Done: {time.perf_counter() - start:.4f}s")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="dynamic sim evals")
+    parser.add_argument('--perturbation_id', type=int, required=False, default=0)
+    parser.add_argument('--task_id', type=int, required=False, default=0)
+    parser.add_argument('--repeats', type=int, required=False, default=5)
+    parser.add_argument('--max_steps', type=int, required=False, default=500)
+    parser.add_argument('--model_name', type=str, required=True, default=None)
+    parser.add_argument('--model_type', type=str, required=True, default=None)
+    parser.add_argument('--port', type=int, required=True)
+    parser.add_argument('--experiment_name', type=str, required=True)
+    parser.add_argument('--run_id', type=str, required=False, default=None)
+    parser.add_argument('--log_dir', type=str, required=False, default=None)
+    parser.add_argument('--multi-view', type=str, default='false', help='Enable multi-view camera (true/false)')
+    parser.add_argument('--resume', action='store_true', help='Resume from existing run report if found')
+    parser.add_argument('--rendering_mode', type=str, required=False, default=None,
+                        help='Omnigibson rendering mode (pt, rt, r)')
+    args = parser.parse_args()
+    assert args.model_name is not None
+    assert args.experiment_name is not None
+
+    multi_view = args.multi_view.lower() == 'true'
+
+    log_dir = args.log_dir if args.log_dir is not None else "/app/logs"
+    log_dir += f"/{args.experiment_name}"
+    log_dir += f"/{args.model_name}"
+    log_dir += f"/{args.run_id}" if args.run_id is not None else ""
+
+    evaluate(
+        task_id=args.task_id,
+        perturbation_id=args.perturbation_id,
+        repeats=args.repeats,
+        max_steps=args.max_steps,
+        model=args.model_name,
+        port=args.port,
+        log_dir=log_dir,
+        multi_view=multi_view,
+        resume=args.resume,
+        rendering_mode=args.rendering_mode
+    )
+    og.shutdown()
+    sys.exit(0)

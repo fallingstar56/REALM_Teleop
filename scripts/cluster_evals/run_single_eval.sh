@@ -92,7 +92,7 @@ apptainer exec \
   --env MAMBA_CACHE_DIR=$REALM_ROOT/mamba_cache/$SLURM_JOB_ID \
   --env PIP_CACHE_DIR=$REALM_ROOT/pip_cache/$SLURM_JOB_ID \
   $REALM_SIF \
-  micromamba run -n omnigibson python examples/02_eval_dynamic_scenes.py \
+  micromamba run -n omnigibson python realm/eval.py \
   --perturbation_id $PERTURBATION_ID \
   --task_id $TASK_ID \
   --repeats $REPEATS \

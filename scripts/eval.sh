@@ -634,7 +634,7 @@ case "$EVAL_ENV" in
             --env "MAMBA_CACHE_DIR=/app/.cache/mamba/${SERVER_PID}" \
             --env "PIP_CACHE_DIR=/app/.cache/pip/${SERVER_PID}" \
             "$REALM_SIF" \
-            micromamba run -n omnigibson python -u examples/02_eval_dynamic_scenes.py \
+            micromamba run -n omnigibson python -u realm/eval.py \
                 --perturbation_id $PERTURBATION_ID \
                 --task_id $TASK_ID \
                 --repeats $REPEATS \
@@ -661,7 +661,7 @@ case "$EVAL_ENV" in
             -v "$REALM_DATA_PATH/isaac-sim/data:/root/.local/share/ov/data:rw" \
             -v "$REALM_DATA_PATH/isaac-sim/documents:/root/Documents:rw" \
             --network=host --rm stanfordvl/omnigibson:1.1.1 \
-            micromamba run -n omnigibson python -u examples/02_eval_dynamic_scenes.py \
+            micromamba run -n omnigibson python -u realm/eval.py \
                 --perturbation_id $PERTURBATION_ID \
                 --task_id $TASK_ID \
                 --repeats $REPEATS \
@@ -671,7 +671,7 @@ case "$EVAL_ENV" in
                 $MULTI_VIEW_FLAG
         ;;
     current)
-        micromamba run -n omnigibson python -u examples/02_eval_dynamic_scenes.py \
+        micromamba run -n omnigibson python -u realm/eval.py \
             --perturbation_id $PERTURBATION_ID \
             --task_id $TASK_ID \
             --repeats $REPEATS \

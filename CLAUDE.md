@@ -18,12 +18,11 @@ REALM/
 │   ├── 00_debug.py                   # Debug mode (zero actions)
 │   ├── 00g_debug_ee_control.py       # Debug end-effector control
 │   ├── 01_pi0_eval.py                # Quick single-task eval
-│   └── 02_eval_dynamic_scenes.py     # Full benchmark eval (main entry point)
 ├── packages/
 │   └── openpi-client/                # WebSocket inference client (local pip package)
 │       └── src/openpi_client/        # msgpack serialization, image tools
 ├── realm/                            # Core library
-│   ├── eval.py                       # Main evaluation pipeline
+│   ├── eval.py                       # Main evaluation pipeline and entrypoint
 │   ├── helpers.py                    # Transforms, object placement, image processing
 │   ├── inference.py                  # Policy server client wrapper
 │   ├── logging.py                    # Video recording & CSV metrics
@@ -62,7 +61,7 @@ All commands run **inside the container** (launched via `source ./scripts/run_do
 OMNIGIBSON_HEADLESS=1 python /app/examples/01_pi0_eval.py
 
 # Full benchmark evaluation
-OMNIGIBSON_HEADLESS=1 python /app/examples/02_eval_dynamic_scenes.py \
+OMNIGIBSON_HEADLESS=1 python /app/realm/eval.py \
     --perturbation_id 0 --task_id 0 --repeats 25 --max_steps 800 \
     --model pi0_FAST --port 8000 --experiment_name exp001
 
@@ -76,7 +75,7 @@ The model inference server (openpi) must be running separately with `XLA_PYTHON_
 
 ### Evaluation Pipeline
 
-`examples/02_eval_dynamic_scenes.py` → `realm/eval.py::evaluate()` → creates `RealmEnvironmentDynamic` + `InferenceClient` → runs rollout loop collecting metrics → saves videos/CSV/numpy artifacts to `log_dir`.
+`realm/eval.py::evaluate()` → creates `RealmEnvironmentDynamic` + `InferenceClient` → runs rollout loop collecting metrics → saves videos/CSV/numpy artifacts to `log_dir`.
 
 ### Environment Hierarchy
 

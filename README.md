@@ -89,7 +89,7 @@ This should produce a rollout video and a numpy report file with the evaluation 
 
 Follow steps 1 and 2 as above. Then run:
 ```
-OMNIGIBSON_HEADLESS=1 python /app/examples/02_eval_dynamic_scenes.py \
+OMNIGIBSON_HEADLESS=1 python /app/realm/eval.py \
     --perturbation_id <PERTURBATION_ID [0-15]> \
     --task_id <TASK_ID [0-9]> \
     --repeats 25 \
