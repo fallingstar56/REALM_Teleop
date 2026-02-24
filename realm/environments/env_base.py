@@ -180,7 +180,7 @@ class RealmEnvironmentBase:
 
     # ============================== [SUCCESS METRICS] ==============================
     def is_grasping(self, obs, candidate_obj):
-        finger_joints = obs['franka']['proprio'][7:9].cpu().numpy()
+        finger_joints = obs['DROID']['proprio'][7:9].cpu().numpy()
         is_either_finger_closing = (0.45 - finger_joints[0] > 1e-3 or 0.45 - finger_joints[1] > 1e-3)
         is_both_fingers_touching_obj = len(
             candidate_obj.states[ContactBodies].get_value().intersection(self.robot_finger_links)) == 2

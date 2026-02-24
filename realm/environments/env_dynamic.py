@@ -31,6 +31,54 @@ from omnigibson.prims.joint_prim import JointPrim
 
 MISSING_PERTURBATIONS = ["V-OBJ", "VB-ISC", "VS-PROP", "SB-ADV", "SB-SMO"]
 SUPPORTED_TASK_TYPES = ["put", "pick", "rotate", "push", "stack", "open_drawer", "close_drawer"]
+SKILL_COMPATIBILITY_MATRIX = {
+    "put": ["pick", "rotate", "stack"],
+    "push": [],  # ["put", "pick", "rotate", "stack"],
+    "pick": ["put", "rotate", "stack"],
+    "rotate": ["put", "pick", "stack"],
+    "stack": ["put", "pick", "rotate"],
+    "open": ["close"],
+    "close": ["open"]
+}
+DEFAULT_RESET_JOINTPOS = np.array([0, -1 / 5 * np.pi, 0, -4 / 5 * np.pi, 0, 3 / 5 * np.pi, 0.0])
+DROID_BASE_HEIGHT = 0.86244
+MAX_CAMERA_POS_DEVIATION = 0.2
+MAX_CAMERA_PITCH_DEVIATION = 0.2
+MAX_CAMERA_YAW_DEVIATION = 0.2
+
+
+def set_rendering_mode(rendering_mode):
+    carb_settings = lazy.carb.settings.get_settings()
+    if rendering_mode == "pt":
+        def enable_interactive_path_tracing(carb_settings, samples_per_pixel=8):
+            carb_settings.set("/rtx/rendermode", "PathTracing")
+            if samples_per_pixel is not None:
+                carb_settings.set_int("/rtx/pathtracing/spp", samples_per_pixel)
+                carb_settings.set_int("/rtx/pathtracing/totalSpp", samples_per_pixel)
+                carb_settings.set_int(
+                    "/rtx/pathtracing/useDirectLightingCache", False
+                )
+            carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", True)
+
+        carb_settings.set("/persistent/omnihydra/useSceneGraphInstancing", True)
+        enable_interactive_path_tracing(carb_settings, samples_per_pixel=8)
+    elif rendering_mode == "r":
+        carb_settings.set_string("/rtx/rendermode", "RaytracedLighting")
+        carb_settings.set_bool("/rtx/translucency/enabled", True)
+        carb_settings.set_bool("/rtx/reflections/enabled", False)
+        carb_settings.set_bool("/rtx/indirectDiffuse/enabled", False)
+        carb_settings.set_bool("/rtx/directLighting/sampledLighting/enabled", True)
+        carb_settings.set_int("/rtx/directLighting/sampledLighting/samplesPerPixel", 1)
+        carb_settings.set_bool("/rtx/shadows/enabled", False)
+        carb_settings.set_int("/rtx/post/dlss/execMode", 0)
+        carb_settings.set_bool("/rtx/ambientOcclusion/enabled", False)
+        carb_settings.set_bool("/rtx-transient/dlssg/enabled", False)
+        carb_settings.set_float("/rtx-transient/resourcemanager/texturestreaming/memoryBudget", 0.6)
+        carb_settings.set_float("/rtx/sceneDb/ambientLightIntensity", 1.0)
+        carb_settings.set_bool("/exts/omni.renderer.core/present/enabled", False)
+        carb_settings.set_string("/isaaclab/rendering/rendering_mode", "performance")
+    else:
+        assert rendering_mode == "rt", f"rendering mode must be 'pt', 'rt', or 'r'"
 
 
 class RealmEnvironmentDynamic(RealmEnvironmentBase):
@@ -46,23 +94,15 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         multi_view: bool = False,
         rendering_mode: str = "rt"
     ) -> None:
-        task_cfg_path = "/".join(task_cfg_path.split("/")[-3:])
-        self.task_cfg_path = task_cfg_path
-
-        task_category = task_cfg_path.split("/")[0]
-        self.use_droid_with_base = True if task_category == "REALM_DROID10" else False # TODO: infer properly from the task/scene config yaml
+        self.task_cfg_path = "/".join(task_cfg_path.split("/")[-3:])
+        self.use_droid_with_base = True if self.task_cfg_path.split("/")[0] == "REALM_DROID10" else False # TODO: infer properly from the task/scene config yaml
         self.multi_view = multi_view
         self.rendering_mode = rendering_mode
-        if self.use_droid_with_base:
-            from realm.robots.franka_robotiq_mounted import FrankaPandaRobotiq
-        else:
-            from realm.robots.franka_robotiq import FrankaPandaRobotiq
-
         self.config_path = config_path
         self.scene_model = scene_model
         self.scene_part = scene_part
         self.reset_qpos = reset_qpos
-
+        self.common_freq = common_freq
         self.supported_pertrubations = {
             'Default': self.default,
             "V-AUG": self.default, # V-AUG is applied when distorting the images in obs
@@ -86,76 +126,39 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         for perturbation in self.active_perturbations:
             assert perturbation in self.supported_pertrubations.keys()
 
-        self.common_freq = common_freq
+        if self.use_droid_with_base:
+            from realm.robots.droid_arm_mounted import DROID
+        else:
+            from realm.robots.droid_arm import DROID
 
         camera_extrinsics_path = f"{self.config_path}/env/external_sensors/camera_extrinsics.yaml"
         self.cfg_camera_extrinsics = yaml.load(open(camera_extrinsics_path, "r"), Loader=yaml.FullLoader)
 
         cfg, mo_cfgs, to_cfgs, dist_cfgs = self.construct_environment_config()
-        test_mo_cfg = copy.deepcopy(mo_cfgs)
         assert len(mo_cfgs) == 1
         assert len(to_cfgs) <= 1
         assert "position" in mo_cfgs[0], "mo must have a specified position"
-
-        self.mo_pos_orig = np.array(mo_cfgs[0]["position"])
-        self.mo_rot_orig = np.array(mo_cfgs[0]["orientation"] if "orientation" in mo_cfgs[0] else [0, 0, 0, 1])
-        self.mo_bbox_orig = np.array(mo_cfgs[0]["bounding_box"])
+        if "SB-NOUN" in self.active_perturbations and cfg["task_type"] == "push":
+            raise NotImplementedError() # TODO: move this to some compatibility matrix / exclusion list
 
         if common_freq is not None:
             cfg["env"]["rendering_frequency"] = common_freq
             cfg["env"]["action_frequency"] = common_freq
 
-        self.cfg = copy.deepcopy(cfg)
+        self.mo_pos_orig = np.array(mo_cfgs[0]["position"])
+        self.mo_rot_orig = np.array(mo_cfgs[0]["orientation"] if "orientation" in mo_cfgs[0] else [0, 0, 0, 1])
+        self.mo_bbox_orig = np.array(mo_cfgs[0]["bounding_box"])
 
+        self.cfg = cfg
         self.task_type = self.cfg["task_type"]
-
-        # TODO: move this to some compatibility matrix / exclusion list
-        # assert self.task_type in SUPPORTED_TASK_TYPES, (self.task_type, SUPPORTED_TASK_TYPES)
-        if "SB-NOUN" in self.active_perturbations and self.task_type == "push":
-            raise NotImplementedError()
+        self.instruction = self.cfg["instruction"]
 
         self.omnigibson_env = og.Environment(configs=[cfg])
-        
-        # Set rendering mode
-        carb_settings = lazy.carb.settings.get_settings()
-        if self.rendering_mode == "pt":
-            def enable_interactive_path_tracing(carb_settings, samples_per_pixel=8):
-                carb_settings.set("/rtx/rendermode", "PathTracing")
-                if samples_per_pixel is not None:
-                    carb_settings.set_int("/rtx/pathtracing/spp", samples_per_pixel)
-                    carb_settings.set_int("/rtx/pathtracing/totalSpp", samples_per_pixel)
-                    carb_settings.set_int(
-                        "/rtx/pathtracing/useDirectLightingCache", False
-                    )
-                carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", True)
-
-            carb_settings.set("/persistent/omnihydra/useSceneGraphInstancing", True)
-            enable_interactive_path_tracing(carb_settings, samples_per_pixel=8)
-        elif self.rendering_mode == "r":
-            carb_settings.set_string("/rtx/rendermode", "RaytracedLighting")
-            carb_settings.set_bool("/rtx/translucency/enabled", True)
-            carb_settings.set_bool("/rtx/reflections/enabled", False)
-            carb_settings.set_bool("/rtx/indirectDiffuse/enabled", False)
-            carb_settings.set_bool("/rtx/directLighting/sampledLighting/enabled", True)
-            carb_settings.set_int("/rtx/directLighting/sampledLighting/samplesPerPixel", 1)
-            carb_settings.set_bool("/rtx/shadows/enabled", False)
-            carb_settings.set_int("/rtx/post/dlss/execMode", 0)
-            carb_settings.set_bool("/rtx/ambientOcclusion/enabled", False)
-            carb_settings.set_bool("/rtx-transient/dlssg/enabled", False)
-            carb_settings.set_float("/rtx-transient/resourcemanager/texturestreaming/memoryBudget", 0.6)
-            carb_settings.set_float("/rtx/sceneDb/ambientLightIntensity", 1.0)
-            carb_settings.set_bool("/exts/omni.renderer.core/present/enabled", False)
-            carb_settings.set_string("/isaaclab/rendering/rendering_mode", "performance")
-        else:
-            assert self.rendering_mode == "rt", f"rendering mode must be 'pt', 'rt', or 'r'"
-            #carb_settings.set("/rtx/rendermode", "RayTracedLighting")
 
         assert len(self.omnigibson_env.robots) == 1  # assumes single robot, single arm
         self.robot = self.omnigibson_env.robots[0]
-        
         self.robot_finger_links = {self.robot._links[link] for link in self.robot.finger_link_names[self.robot.default_arm]}
 
-        self.instruction = self.cfg["instruction"]
         self.main_objects = [self.omnigibson_env.scene.object_registry("name", mo["name"]) for mo in mo_cfgs]
         self.target_objects = [self.omnigibson_env.scene.object_registry("name", to["name"]) for to in to_cfgs]
         self.distractors = [self.omnigibson_env.scene.object_registry("name", dist["name"]) for dist in dist_cfgs]
@@ -172,27 +175,23 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             self.v_aug_sigma = np.random.uniform(0.0, 3.0)
             self.v_aug_alpha = np.random.uniform(0.5, 2.0)
 
-        # TODO: move to a config file
-        self.friction = np.array([0.05, 0.10, 0.05, 0.10, 0.75, 0.425, 0.20])
-        self.armature = np.array([0.25, 0.50, 0.25, 0.50, 0.25, 0.150, 0.00])
+        # ---------- apply fixes to the env ----------
         self.update_robot_physics()
-
         self.apply_scene_fixes_from_cfg()
         self.disable_visual_toggles()
+        set_rendering_mode(rendering_mode)
 
         super().__init__(
             main_objects=self.main_objects,
             target_objects=self.target_objects,
             task_type=self.task_type,
             robot=self.robot,
-            mo_cfgs=test_mo_cfg
+            mo_cfgs=mo_cfgs
         )
 
     def construct_environment_config(self):
         cfg = dict()
-
-        task_config_path = f"{self.config_path}/tasks/{self.task_cfg_path}"
-        task_cfg = yaml.load(open(task_config_path, "r"), Loader=yaml.FullLoader)
+        task_cfg = yaml.load(open(f"{self.config_path}/tasks/{self.task_cfg_path}", "r"), Loader=yaml.FullLoader)
         cfg.update(task_cfg)
 
         # ---------------------------------------- scene config ----------------------------------------
@@ -218,8 +217,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                 "scene_model": self.scene_model
             }
 
-        spawn_config_path = f"{self.config_path}/scenes/behavior1k_scenes.yaml"
-        spawn_cfg = yaml.load(open(spawn_config_path, "r"), Loader=yaml.FullLoader)
+        spawn_cfg = yaml.load(open(f"{self.config_path}/scenes/behavior1k_scenes.yaml", "r"), Loader=yaml.FullLoader)
         assert self.scene_model in spawn_cfg and self.scene_part in spawn_cfg[self.scene_model]
         scene_data = spawn_cfg[self.scene_model][self.scene_part]
         if all(k in scene_data for k in ["x_min", "x_max", "y_min", "y_max", "z"]):
@@ -242,9 +240,9 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         elif "reset_joint_pos" in scene_data:
             reset_joint_pos[:7] = np.array(scene_data['reset_joint_pos'])
         else:
-            reset_joint_pos[:7] = np.array([0, -1 / 5 * np.pi, 0, -4 / 5 * np.pi, 0, 3 / 5 * np.pi, 0.0])
+            reset_joint_pos[:7] = DEFAULT_RESET_JOINTPOS
 
-        cfg_robot = yaml.load(open(f"{self.config_path}/robots/franka_robotiq.yaml", "r"), Loader=yaml.FullLoader)
+        cfg_robot = yaml.load(open(f"{self.config_path}/robots/DROID.yaml", "r"), Loader=yaml.FullLoader)
         cfg_robot["robots"][0]["position"] = robot_pos
         cfg_robot["robots"][0]["orientation"] = omnigibson_transform_utils.euler2quat(
             torch.tensor(robot_rot, dtype=torch.float32)).tolist()
@@ -270,7 +268,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         robot_rot_deg_z = scene_data['rot'][-1]
         assert robot_rot_deg_z >= 0
         obj_pos_modifier_x = 1
-        obj_pos_modifier_y = 1
         if 90 <= robot_rot_deg_z <= 270:
             obj_pos_modifier_x = -1
 
@@ -313,7 +310,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         if "immutables" in task_cfg:
             distractors += task_cfg["immutables"] # immutables go here because the distractor list above is meant to be replaceable objects
 
-        # make sure positions exist
         for obj in cfg["objects"]:
             assert "position" in obj
 
@@ -342,10 +338,10 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             cfg["env"] = {}
         cfg["env"].update(cfg_external_sensors)
 
-        return (cfg,
-                [o for o in task_cfg["main_objects"]],
-                [o for o in task_cfg["target_objects"]],
-                [o for o in distractors]
+        return (copy.deepcopy(cfg),
+                copy.deepcopy([o for o in task_cfg["main_objects"]]),
+                copy.deepcopy([o for o in task_cfg["target_objects"]]),
+                copy.deepcopy([o for o in distractors])
                 )
 
     def construct_ext_cam_pose_by_name(self, pose_name, robot_pos, robot_rot):
@@ -356,22 +352,23 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             base_cam_pos, base_cam_rot,
             robot_pos, robot_rot
         )
-        base_cam_pos[-1] += 0.86244 if self.use_droid_with_base else 0  # height of the robot base
+        base_cam_pos[-1] += DROID_BASE_HEIGHT if self.use_droid_with_base else 0  # height of the robot base
         return base_cam_pos, base_cam_rot
 
     def update_robot_physics(self):
-        robot = self.omnigibson_env.robots[0]
-        joint_names = robot.arm_joint_names
+        friction = np.array(self.cfg["robots"][0]["friction"])
+        armature = np.array(self.cfg["robots"][0]["armature"])
+
+        joint_names = self.robot.arm_joint_names
         for idx in range(7):
-            prim_path = f"{robot.prim_path}/panda_link{idx}/{joint_names['0'][idx]}"
+            prim_path = f"{self.robot.prim_path}/panda_link{idx}/{joint_names['0'][idx]}"
             joint_prim = lazy.omni.isaac.core.utils.prims.get_prim_at_path(prim_path)
             assert joint_prim.IsValid()
-            joint_prim.GetAttribute("physxJoint:jointFriction").Set(self.friction[idx])
-            joint_prim.GetAttribute("physxJoint:armature").Set(self.armature[idx])
+            joint_prim.GetAttribute("physxJoint:jointFriction").Set(friction[idx])
+            joint_prim.GetAttribute("physxJoint:armature").Set(armature[idx])
 
     def apply_scene_fixes_from_cfg(self):
-        spawn_config_path = f"{self.config_path}/scenes/scenes.yaml"
-        spawn_cfg = yaml.load(open(spawn_config_path, "r"), Loader=yaml.FullLoader)
+        spawn_cfg = yaml.load(open(f"{self.config_path}/scenes/scenes.yaml", "r"), Loader=yaml.FullLoader)
 
         if self.scene_model in spawn_cfg and self.scene_part in spawn_cfg[self.scene_model]:
             scene_data = spawn_cfg[self.scene_model][self.scene_part]
@@ -417,15 +414,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
             return lights
 
-        # def find_light_prim(light_object):
-        #     object_prim = light_object.root_prim
-        #     for child in object_prim.GetChildren():
-        #         if child.GetTypeName() == "Xform":
-        #             for grand_child in child.GetChildren():
-        #                 if grand_child.IsA(lazy.pxr.UsdLux.Light):
-        #                     return grand_child
-        #     return None
-
         all_lights = []
         for obj in self.omnigibson_env.scene.objects:
             all_lights.extend(find_lights_recursive(obj))
@@ -438,7 +426,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             light_prim = lazy.omni.isaac.core.utils.prims.get_prim_at_path(light_prim_path)
             if light_prim is None or not light_prim.IsValid(): # the recursive search also takes links that do not contain the light object, these are skipped here
                 continue
-            #assert light_prim.IsValid()
 
             light_prim.GetAttribute("inputs:intensity").Set(intensity)
 
@@ -446,36 +433,17 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             color = np.clip(color, 0, 255).astype(float) / 255.0
             light_prim.GetAttribute("inputs:color").Set(lazy.pxr.Gf.Vec3f(*color))
 
-        # for light in all_lights:
-        #     light_prim = find_light_prim(light)
-        #     if not light_prim.IsValid(): # the recursive search also takes links that do not contain the light object, these are skipped here
-        #         continue
-        #     #assert light_prim and light_prim.IsValid()
-        #
-        #     # light_prim_path = light_prim.GetPath().pathString
-        #     # light_prim = lazy.omni.isaac.core.utils.prims.lazy_prims_utils.get_prim_at_path(light_prim_path)
-        #     # assert light_prim.IsValid()
-        #
-        #     light_prim.GetAttribute("inputs:intensity").Set(intensity)
-        #
-        #     color = np.random.normal(loc=col_mean, scale=col_std, size=(3,))
-        #     color = np.clip(color, 0, 255).astype(float) / 255.0
-        #     light_prim.GetAttribute("inputs:color").Set(lazy.pxr.Gf.Vec3f(*color))
-
     def v_view(self):
         def perturb_camera_pose(cam_pos: list[float], cam_orientation: list[float]) -> tuple[list[float], list[float]]:
-            MAX_POS_DEVIATION = 0.2
-            MAX_PITCH_DEVIATION = 0.2
-            MAX_YAW_DEVIATION = 0.2
             cam_pos = np.array(cam_pos)
-            delta_pos = np.random.uniform(-MAX_POS_DEVIATION, MAX_POS_DEVIATION, 3)
+            delta_pos = np.random.uniform(-MAX_CAMERA_POS_DEVIATION, MAX_CAMERA_POS_DEVIATION, 3)
             cam_pos += delta_pos
             cam_pos = cam_pos.tolist()
 
             cam_orientation = torch.tensor(cam_orientation)
             cam_rpy = omnigibson_transform_utils.quat2euler(cam_orientation)
-            cam_rpy[0] += (torch.rand(()) * 2 - 1) * MAX_PITCH_DEVIATION
-            cam_rpy[2] += (torch.rand(()) * 2 - 1) * MAX_YAW_DEVIATION
+            cam_rpy[0] += (torch.rand(()) * 2 - 1) * MAX_CAMERA_PITCH_DEVIATION
+            cam_rpy[2] += (torch.rand(()) * 2 - 1) * MAX_CAMERA_YAW_DEVIATION
             cam_orientation = omnigibson_transform_utils.euler2quat(cam_rpy)
             cam_orientation = cam_orientation.cpu().numpy().tolist()
 
@@ -684,19 +652,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
 
     def sb_vrb(self):
-        #all_available_task_types = [task for task in SUPPORTED_TASK_TYPES if task != self.task_type]
-
-        compatibility_matrix = {
-            "put": ["pick", "rotate", "stack"],
-            "push": [], #["put", "pick", "rotate", "stack"],
-            "pick": ["put", "rotate", "stack"],
-            "rotate": ["put", "pick", "stack"],
-            "stack": ["put", "pick", "rotate"],
-            "open": ["close"],
-            "close": ["open"]
-        }
-
-        available_task_types = compatibility_matrix[self.task_type]
+        available_task_types = SKILL_COMPATIBILITY_MATRIX[self.task_type]
 
         new_verb_for_task = random.choice(available_task_types)
         self.task_type = new_verb_for_task
@@ -799,8 +755,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             # assumes the primitives have a defautl scale 1,1,1 hence the orig bbox can be used as replacement
             og.sim.stop()
             scale = torch.tensor([s1, s2, s3])
-            # if self.task_type in ["open_drawer", "close_drawer"]:
-            #     scale[-1] = 1
             mo.scale = torch.tensor(self.mo_bbox_orig) * scale
             og.sim.play()
             for _ in range(30):
@@ -918,7 +872,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         is_gripper_closed = True
         for t in range(19):
             new_action = np.concatenate((
-                obs['franka']['proprio'][:7].cpu().numpy(),
+                obs['DROID']['proprio'][:7].cpu().numpy(),
                 np.atleast_1d(np.zeros(1))
             ))
             if t != 0 and t % 10 == 0:

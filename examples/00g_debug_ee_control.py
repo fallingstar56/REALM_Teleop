@@ -11,9 +11,9 @@ from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
 
 USE_DROID_WITH_BASE = True
 if USE_DROID_WITH_BASE:
-    from realm.robots.franka_robotiq_mounted import FrankaPandaRobotiq
+    from realm.robots.droid_arm_mounted import DROID
 else:
-    from realm.robots.franka_robotiq import FrankaPandaRobotiq
+    from realm.robots.droid_arm import DROID
 
 from omnigibson.controllers import REGISTERED_CONTROLLERS
 from realm.robots.droid_joint_controller import IndividualJointPDController
@@ -57,8 +57,8 @@ cfg["scene"] = {
 # Define robots
 cfg["robots"] = [
     {
-        "type": "FrankaPandaRobotiq",
-        "name": "franka",
+        "name": "DROID",
+        "type": "DROID",
         "obs_modalities": ["proprio"], #"rgb",
         "proprio_obs": ["joint_qpos"],
         "position": [0, 0, 0], #0.87],
@@ -194,7 +194,7 @@ close = False
 flip = True
 for t in range(175):
     # sample = env.action_space.sample()
-    robot_state = obs['franka']['proprio']#[:7].cpu().numpy()
+    robot_state = obs['DROID']['proprio']#[:7].cpu().numpy()
     #
     base_im = obs['external']['external_sensor0']['rgb'].cpu().numpy()[..., :3]
     video.append(base_im)
@@ -205,16 +205,16 @@ for t in range(175):
     #     intended_state = grasp_state
     # #print(t, np.round(intended_state - robot_state, 4))
     # #print(np.round(robot_state, 4))
-    # sample['franka'][:-1] = intended_state #robot_state
-    # #sample['franka'][:-1] = np.zeros_like(sample['franka'])[:-1]
-    # sample['franka'][-1] = -1
+    # sample['DROID'][:-1] = intended_state #robot_state
+    # #sample['DROID'][:-1] = np.zeros_like(sample['DROID'])[:-1]
+    # sample['DROID'][-1] = -1
     #
     # if t > 60:
-    #     sample['franka'][0] -= 0.001 * (t - 100)
+    #     sample['DROID'][0] -= 0.001 * (t - 100)
     # if t > 90:
-    #     sample['franka'][-1] = 1
+    #     sample['DROID'][-1] = 1
     # if t > 250:
-    #     sample['franka'][1] -= 0.15
+    #     sample['DROID'][1] -= 0.15
     #
     # print(t, sample)
 

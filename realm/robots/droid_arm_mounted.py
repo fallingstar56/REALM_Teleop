@@ -1,16 +1,15 @@
 import os
-import torch as th
 
+import torch as th
 from omnigibson.macros import gm
 from omnigibson.robots.manipulation_robot import GraspingPoint, ManipulationRobot
 from omnigibson.utils.transform_utils import euler2quat
 
 
-class FrankaPandaRobotiq(ManipulationRobot):
+class DROID(ManipulationRobot):
     """
-    The Franka Emika Panda robot
+    The DROID robot platform
     """
-
     def __init__(
         self,
         # Shared kwargs in hierarchy
@@ -166,7 +165,7 @@ class FrankaPandaRobotiq(ManipulationRobot):
     @property
     def _default_controllers(self):
         controllers = super()._default_controllers
-        controllers["arm_{}".format(self.default_arm)] = self.controller_name #"InverseKinematicsController"
+        controllers["arm_{}".format(self.default_arm)] = self.controller_name
         controllers["gripper_{}".format(self.default_arm)] = "CustomGripperController"
         return controllers
 
@@ -200,18 +199,17 @@ class FrankaPandaRobotiq(ManipulationRobot):
 
     @property
     def usd_path(self):
-        return os.path.join(gm.ASSET_PATH, f"/app/realm/robots/panda_robotiq/droid.usd")
+        return os.path.join(gm.ASSET_PATH, f"/app/realm/robots/panda_robotiq/droid_mounted.usd")
 
     @property
     def robot_arm_descriptor_yamls(self):
         #return {self.default_arm: os.path.join(gm.ASSET_PATH, f"models/panda_robotiq/panda_with_cam_description.yaml")}
-        # TODO:
+        # TODO: do not hardcode paths and set the macro instead
         return {self.default_arm: os.path.join(gm.ASSET_PATH, f"/app/realm/robots/panda_robotiq/panda_robotiq_description.yaml")}
 
     @property
     def urdf_path(self):
-        # TODO:
-        return None #os.path.join(gm.ASSET_PATH, f"models/franka/{self.model_name}.urdf")
+        return os.path.join(gm.ASSET_PATH, f"models/franka/panda_robotiq_85.urdf")
 
     @property
     def curobo_path(self):
@@ -278,7 +276,7 @@ class FrankaPandaRobotiq(ManipulationRobot):
         dic = {}
         for arm in self.arm_names:
             dic[arm] = {
-                "name": self.controller_name, #"CustomJointController"
+                "name": self.controller_name,
                 "control_freq": self._control_freq,
                 "control_limits": self.control_limits,
                 "dof_idx": self.arm_control_idx[arm],

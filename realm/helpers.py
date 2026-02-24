@@ -125,8 +125,8 @@ def apply_blur_and_contrast(obs, sigma=None, alpha=None):
             )
         ).to(base_im.device)
 
-    wrist_im = obs['franka']['franka:gripper_link_camera:Camera:0']['rgb']
-    obs['franka']['franka:gripper_link_camera:Camera:0']['rgb'][..., :3] = torch.tensor(
+    wrist_im = obs['DROID']['DROID:gripper_link_camera:Camera:0']['rgb']
+    obs['DROID']['DROID:gripper_link_camera:Camera:0']['rgb'][..., :3] = torch.tensor(
         apply_random_image_augmentations(
             wrist_im.cpu().numpy()[..., :3].astype(np.float32)
         )
