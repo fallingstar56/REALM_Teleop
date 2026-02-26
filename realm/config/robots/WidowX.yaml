@@ -4,6 +4,7 @@ robots:
     obs_modalities: ["proprio"]
     proprio_obs: ["joint_qpos"]
     control_freq: 5
+    dof: 8
     action_normalize: False
     action_type: "continuous"
     friction: [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ] # TODO

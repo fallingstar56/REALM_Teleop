@@ -174,7 +174,7 @@ def evaluate(
         was_grasping = False
 
         while t < max_steps and terminal_steps > 0:
-            base_im, base_im_second, wrist_im, robot_state, gripper_state = extract_from_obs(obs)
+            base_im, base_im_second, wrist_im, robot_state, gripper_state = extract_from_obs(obs, robot_name=env.robot.name)
 
             # Metrics collection
             ee_pos, ee_rot = env.get_ee_pose()

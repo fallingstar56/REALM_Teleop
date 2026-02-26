@@ -88,7 +88,7 @@ def add_rotation_noise(current_orientation_quat, noise_std_dev_rad_xyz, min_xyz=
     return new_rot.as_quat()
 
 
-def apply_blur_and_contrast(obs, sigma=None, alpha=None):
+def apply_blur_and_contrast(obs, sigma=None, alpha=None, robot_name='DROID'):
     # 1. Random Gaussian Blur
     # Sigma for Gaussian blur: 0 (no blur) to 3.0 (moderate blur)
     if sigma is None:
@@ -125,8 +125,9 @@ def apply_blur_and_contrast(obs, sigma=None, alpha=None):
             )
         ).to(base_im.device)
 
-    wrist_im = obs['DROID']['DROID:gripper_link_camera:Camera:0']['rgb']
-    obs['DROID']['DROID:gripper_link_camera:Camera:0']['rgb'][..., :3] = torch.tensor(
+    # TODO: this will only work for DORID dict structure right now:
+    wrist_im = obs[robot_name][f'{robot_name}:gripper_link_camera:Camera:0']['rgb']
+    obs[robot_name][f'{robot_name}:gripper_link_camera:Camera:0']['rgb'][..., :3] = torch.tensor(
         apply_random_image_augmentations(
             wrist_im.cpu().numpy()[..., :3].astype(np.float32)
         )

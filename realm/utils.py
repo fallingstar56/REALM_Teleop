@@ -33,7 +33,7 @@ def replay_traj(env: RealmEnvironmentDynamic, trajectory_actions, trajectory_gt_
         obs, curr_task_progression, terminated, truncated, info = env.step(action)
 
     for t in range(max_steps):
-        robot_state = obs['DROID']['proprio'].cpu().numpy()
+        robot_state = obs[env.robot.name]['proprio'].cpu().numpy()
         qpos.append(robot_state[:7])
 
         ee_pos, ee_rot = env.get_ee_pose()

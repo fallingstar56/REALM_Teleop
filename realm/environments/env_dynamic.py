@@ -45,6 +45,7 @@ DROID_BASE_HEIGHT = 0.86244
 MAX_CAMERA_POS_DEVIATION = 0.2
 MAX_CAMERA_PITCH_DEVIATION = 0.2
 MAX_CAMERA_YAW_DEVIATION = 0.2
+DROID_DEFAULT_DOF = 11
 
 
 def set_rendering_mode(rendering_mode):
@@ -219,7 +220,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         else:
             cfg["scene"] = {
                 "type": "InteractiveTraversableScene",
-                "scene_model": self.scene_model
+                "scene_model": self.scene_model,
             }
 
         spawn_cfg = yaml.load(open(f"{self.config_path}/scenes/scenes.yaml", "r"), Loader=yaml.FullLoader)
@@ -239,20 +240,20 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         assert "pos" in scene_data and "rot" in scene_data
         robot_pos = scene_data['pos']
         robot_rot = [math.radians(angle_deg) for angle_deg in scene_data['rot']]
-        reset_joint_pos = np.zeros(11)
-        if "reset_joint_pos" in task_cfg:
-            reset_joint_pos[:7] = np.array(task_cfg['reset_joint_pos'])
-        elif "reset_joint_pos" in scene_data:
-            reset_joint_pos[:7] = np.array(scene_data['reset_joint_pos'])
-        else:
-            reset_joint_pos[:7] = DEFAULT_RESET_JOINTPOS
-
 
         cfg_robot = yaml.load(open(f"{self.config_path}/robots/{self.robot_name}.yaml", "r"), Loader=yaml.FullLoader)
         cfg_robot["robots"][0]["position"] = robot_pos
         cfg_robot["robots"][0]["orientation"] = omnigibson_transform_utils.euler2quat(
             torch.tensor(robot_rot, dtype=torch.float32)).tolist()
         cfg_robot["robots"][0]["fixed_base"] = True
+
+        reset_joint_pos = np.zeros(cfg_robot["robots"][0]["dof"] if "dof" in cfg_robot["robots"][0] else DROID_DEFAULT_DOF)
+        if "reset_joint_pos" in task_cfg:
+            reset_joint_pos[:7] = np.array(task_cfg['reset_joint_pos'])
+        elif "reset_joint_pos" in scene_data:
+            reset_joint_pos[:7] = np.array(scene_data['reset_joint_pos'])
+        else:
+            reset_joint_pos[:7] = DEFAULT_RESET_JOINTPOS
         cfg_robot["robots"][0]["reset_joint_pos"] = reset_joint_pos
 
         if self.common_freq is not None:
@@ -320,6 +321,10 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             assert "position" in obj
 
         # ---------------------------------------- external camera config ----------------------------------------
+        if "env" not in cfg:
+            cfg["env"] = {
+                "initial_pos_z_offset": 0.2
+            }
         if not self.no_rendering:
             ext_cam1_pose = task_cfg["camera_extrinsics"]["cam1"] if "camera_extrinsics" in task_cfg else "default"
             if "camera_extrinsics" in task_cfg and "cam2" in task_cfg["camera_extrinsics"]:
@@ -341,8 +346,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             else:
                 del cfg_external_sensors["external_sensors"][1]
 
-            if "env" not in cfg:
-                cfg["env"] = {}
             cfg["env"].update(cfg_external_sensors)
 
         return (copy.deepcopy(cfg),
@@ -363,6 +366,9 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         return base_cam_pos, base_cam_rot
 
     def update_robot_physics(self):
+        if not self.robot_name == "DROID":
+            return
+
         friction = np.array(self.cfg["robots"][0]["friction"])
         armature = np.array(self.cfg["robots"][0]["armature"])
 
