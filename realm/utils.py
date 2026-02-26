@@ -28,9 +28,9 @@ def replay_traj(env: RealmEnvironmentDynamic, trajectory_actions, trajectory_gt_
     obs, _ = env.reset()
     obs, rew, terminated, truncated, info = env.warmup(obs)
 
-    for _ in range(150):
-        action = np.concatenate((trajectory_gt_qpos[0, :7], np.atleast_1d(np.zeros(1))))
-        obs, curr_task_progression, terminated, truncated, info = env.step(action)
+    # for _ in range(150):
+    #     action = np.concatenate((trajectory_gt_qpos[0, :7], np.atleast_1d(np.zeros(1))))
+    #     obs, curr_task_progression, terminated, truncated, info = env.step(action)
 
     for t in range(max_steps):
         robot_state = obs[env.robot.name]['proprio'].cpu().numpy()
@@ -39,7 +39,9 @@ def replay_traj(env: RealmEnvironmentDynamic, trajectory_actions, trajectory_gt_
         ee_pos, ee_rot = env.get_ee_pose()
         ee_pos_list.append(ee_pos)
 
-        action = np.concatenate((trajectory_actions[t, :7], np.atleast_1d(np.zeros(1))))
+        #action = np.concatenate((trajectory_actions[t, :7], np.atleast_1d(np.zeros(1))))
+        action = np.array([0.0, -0.849879, 0.258767, 0.0, 1.2831712, 0.0, 0.057, 0.057])
+        #action = np.zeros(8) # TODO: revert
 
         obs, curr_task_progression, terminated, truncated, info = env.step(action)
 
@@ -58,18 +60,17 @@ def replay_traj(env: RealmEnvironmentDynamic, trajectory_actions, trajectory_gt_
     }
 
 
-def cost_function(traj_path: str, max_eps: int = 5):
+def cost_function(env: RealmEnvironmentDynamic, traj_path: str, max_eps: int = 5):
     ep_names = [d for d in os.listdir(traj_path) if os.path.isdir(os.path.join(traj_path, d))]
     ep_names = ep_names[:max_eps]
 
     cost = 0.0
     for traj_id in range(len(ep_names)):
-        # TODO: check file structure and fix paths if needed
-        traj_qpos_actions = np.load(f"{traj_path}/{ep_names[traj_id]}/action_qpos.npy")
-        traj_qpos_gt = np.load(f"{traj_path}/{ep_names[traj_id]}/states_qpos.npy")
-        traj_ee_gt = np.load(f"{traj_path}/{ep_names[traj_id]}/states_ee.npy")
+        traj_qpos_actions = np.load(f"{traj_path}/{ep_names[traj_id]}/action_joint_position.npy")
+        traj_qpos_gt = np.load(f"{traj_path}/{ep_names[traj_id]}/observation_state_joint_position.npy")
+        traj_ee_gt = np.load(f"{traj_path}/{ep_names[traj_id]}/observation_state_cartesian_position.npy")
 
-        res_dict = replay_traj(traj_qpos_actions, traj_qpos_gt, traj_ee_gt)
+        res_dict = replay_traj(env, traj_qpos_actions, traj_qpos_gt, traj_ee_gt)
         cost += np.sum(np.square(res_dict["qpos_err"] + res_dict["ee_pos_err"]))
 
     return cost

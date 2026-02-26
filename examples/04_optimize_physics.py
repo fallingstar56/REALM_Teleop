@@ -57,7 +57,7 @@ if __name__ == "__main__":
 
     # --- 5. Run the optimization ---
     def replay_error():
-        return cost_function(traj_path, max_eps=args.max_eps)
+        return cost_function(env=env, traj_path=traj_path, max_eps=args.max_eps)
 
     es = cma.fmin(
         replay_error,

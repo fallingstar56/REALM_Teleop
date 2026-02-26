@@ -13,16 +13,16 @@ robots:
     controller_config:
         arm_0:
             name: "JointController"
-            "motor_type": "position"
+            motor_type: "position"
             control_freq: 5
             use_delta_commands: False
-            use_impedances: True
+            use_impedances: True #False
             use_gravity_compensation: False
             use_cc_compensation: False
-            command_output_limits: "default"
-            command_input_limits: "default"
-            kp: 800
-            damping_ratio: 0
+            command_output_limits: null
+            command_input_limits: null
+            kp: 5 # 800
+            damping_ratio: 10 #0
         gripper_0:
           name: "MultiFingerGripperController"
           mode: "binary"
