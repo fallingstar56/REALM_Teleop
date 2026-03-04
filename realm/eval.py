@@ -99,6 +99,9 @@ def evaluate(
         task_cfg_path = f"REALM_DROID10/{task}/default.yaml"
     else:
         task = task_cfg_path.split("/")[-2]
+        config_name = task_cfg_path.split("/")[-1].replace(".yaml", "").replace(".cfg", "")
+        if config_name != "default":
+            task = f"{task}_{config_name}"
 
     perturbations = [SUPPORTED_PERTURBATIONS[perturbation_id]]
 

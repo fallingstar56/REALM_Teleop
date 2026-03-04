@@ -433,6 +433,9 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         col_mean = np.array([255, 214, 170])
         col_std = 15
+        color = np.random.normal(loc=col_mean, scale=col_std, size=(3,))
+        color = np.clip(color, 0, 255).astype(float) / 255.0
+
         world_path = "/World/scene_0" # TODO: is this always the case? what about vectorized envs
         for light in all_lights:
             light_prim_path = world_path + light._relative_prim_path + "/light_0" # TODO: ^^^
@@ -441,9 +444,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                 continue
 
             light_prim.GetAttribute("inputs:intensity").Set(intensity)
-
-            color = np.random.normal(loc=col_mean, scale=col_std, size=(3,))
-            color = np.clip(color, 0, 255).astype(float) / 255.0
             light_prim.GetAttribute("inputs:color").Set(lazy.pxr.Gf.Vec3f(*color))
 
     def v_view(self):
