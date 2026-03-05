@@ -88,8 +88,17 @@ def load_experiment_metadata(experiment_path):
         return None, f"Metadata file not found at {metadata_path}"
 
     try:
+        import re
         with open(metadata_path, 'r') as f:
-            metadata = json.load(f)
+            content = f.read()
+            
+        def repl(match):
+            start = int(match.group(1))
+            end = int(match.group(2))
+            return "[" + ", ".join(str(i) for i in range(start, end + 1)) + "]"
+        
+        content = re.sub(r'\[\s*(\d+)\s*-\s*(\d+)\s*\]', repl, content)
+        metadata = json.loads(content)
         return metadata, None
     except Exception as e:
         return None, f"Error reading metadata: {e}"

@@ -25,7 +25,7 @@ while [[ "$#" -gt 0 ]]; do
     --policy_config) POLICY_CONFIG="$2"; shift 2 ;;
     --checkpoint_path) CHECKPOINT_PATH="$2"; shift 2 ;;
     --policy_run_dir) POLICY_RUN_DIR="$2"; shift 2 ;;
-    --base_port) BASE_PORT="$2"; shift 2 ;;
+    --base_port|--base-port) BASE_PORT="$2"; shift 2 ;;
     --max_steps) MAX_STEPS="$2"; shift 2 ;;
     --repeats) REPEATS="$2"; shift 2 ;;
     --experiment_name) EXPERIMENT_NAME="$2"; shift 2 ;;

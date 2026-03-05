@@ -20,9 +20,12 @@ if __name__ == "__main__":
     parser.add_argument('--rendering_mode', type=str, required=False, default=None, help='Omnigibson rendering mode (pt, rt, r)')
     parser.add_argument('--multi-view', action='store_true', help='Enable second external camera')
     parser.add_argument('--resume', action='store_true', help='Resume from existing run report if found')
+    parser.add_argument('--no_render', action='store_true', help='Disable rendering completely')
+    parser.add_argument('--robot', type=str, required=False, default="DROID", help='Robot type')
     args = parser.parse_args()
 
     assert args.model_name is not None
+    assert args.model_type is not None
     assert args.experiment_name is not None
     #assert not (args.task_cfg_path and args.task_id), f"Either task --task_cfg_path or --task_id should be specified, but not both."
 
@@ -36,13 +39,15 @@ if __name__ == "__main__":
         perturbation_id=args.perturbation_id,
         repeats=args.repeats,
         max_steps=args.max_steps,
-        model=args.model_name,
+        model_type=args.model_type,
         port=args.port,
         log_dir=log_dir,
         multi_view=args.multi_view,
         resume=args.resume,
+        no_render=args.no_render,
         rendering_mode=args.rendering_mode,
-        task_cfg_path=args.task_cfg_path
+        task_cfg_path=args.task_cfg_path,
+        robot=args.robot
     )
     og.shutdown()
     sys.exit(0)

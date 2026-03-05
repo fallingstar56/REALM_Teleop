@@ -385,6 +385,15 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             joint_prim.GetAttribute("physxJoint:jointFriction").Set(friction[idx])
             joint_prim.GetAttribute("physxJoint:armature").Set(armature[idx])
 
+        # Fix triangle mesh collision approximation for dynamic bodies
+        for link_name, link in self.robot.links.items():
+            for collision_mesh in link.collision_meshes.values():
+                prim = lazy.omni.isaac.core.utils.prims.get_prim_at_path(collision_mesh.prim_path)
+                if prim.IsValid() and prim.HasAttribute("physxMeshCollision:approximation"):
+                    approx = prim.GetAttribute("physxMeshCollision:approximation").Get()
+                    if approx in ["none", "meshSimplification"]:
+                        prim.GetAttribute("physxMeshCollision:approximation").Set("convexHull")
+
     def apply_scene_fixes_from_cfg(self):
         spawn_cfg = yaml.load(open(f"{self.config_path}/scenes/scenes.yaml", "r"), Loader=yaml.FullLoader)
 

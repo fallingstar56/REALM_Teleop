@@ -81,18 +81,19 @@ def evaluate(
         repeats=1,
         max_steps=500,
         horizon=8,
-        model="pi0_FAST",
+        model_type="pi0_FAST",
         port=8000,
         log_dir="/app/logs",
         resume=False,
         multi_view=False,
+        no_render=False,
         rendering_mode=None,
         task_cfg_path=None,
         robot="DROID"
 ):
     start = time.perf_counter()
     og.log.info(f"DEBUG: Begin eval: {time.perf_counter() - start:.4f}s")
-    set_sim_config(rendering_mode=rendering_mode, robot="DROID")
+    set_sim_config(rendering_mode=rendering_mode, robot=robot)
 
     # -------------------- Create the environment + client --------------------
     if task_cfg_path is None:
@@ -108,7 +109,7 @@ def evaluate(
 
     os.makedirs(log_dir, exist_ok=True)
 
-    model_type = model # TODO: infer type from model name, rn this will just default to a pi model inference inside the client
+    model_type = model_type # TODO: infer type from model name, rn this will just default to a pi model inference inside the client
     client = InferenceClient(model_type, port)
     og.log.info(f"DEBUG: Client connected: {time.perf_counter() - start:.4f}s")
 
@@ -117,6 +118,7 @@ def evaluate(
         task_cfg_path=task_cfg_path,
         perturbations=perturbations,
         multi_view=multi_view,
+        no_rendering=no_render,
         rendering_mode=rendering_mode,
         robot=robot
     )
@@ -154,7 +156,7 @@ def evaluate(
 
         timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H:%M:%S")
 
-        video_recorder = VideoRecorder(log_dir, timestamp, run_id, task, perturbations[0])
+        #video_recorder = VideoRecorder(log_dir, timestamp, run_id, task, perturbations[0])
 
         qpos = []
         actions = []
@@ -222,7 +224,8 @@ def evaluate(
                 else:
                     action_buffer.put(pred_action_chunk)
 
-            video_recorder.add_frame(base_im, wrist_im, base_im_second)
+            #if not no_render:
+            #    video_recorder.add_frame(base_im, wrist_im, base_im_second)
 
             qpos.append(np.concatenate((robot_state, np.atleast_1d(np.array(gripper_state)))))
 
@@ -317,9 +320,10 @@ def evaluate(
             "object_drops": drops
         })
 
-        video_filename = os.path.join(log_dir, "videos", f"{task}_{perturbations[0]}_{run_id}")
-        video_recorder.save_video(video_filename)
-        video_recorder.cleanup()
+        #if not no_render:
+        #    video_filename = os.path.join(log_dir, "videos", f"{task}_{perturbations[0]}_{run_id}")
+        #    video_recorder.save_video(video_filename)
+        #video_recorder.cleanup()
 
         qpos_filename = os.path.join(log_dir, "qpos", f"{task}_{perturbations[0]}_{run_id}")
         os.makedirs(log_dir + "/qpos", exist_ok=True)
