@@ -37,7 +37,7 @@ if __name__ == "__main__":
     os.makedirs(log_dir, exist_ok=True)
     task_cfg_path = f"other/trajectory_replay/default.yaml"
     traj_root = "/app/data/RoboMIND2.0-UR5/data/ur/"
-    rendering_mode = "r"
+    rendering_mode = "pt" # TODO: undo
     robot = args.robot #"UR5"
     #robot = "UR5_default_pd_control"
 
@@ -54,7 +54,7 @@ if __name__ == "__main__":
         perturbations=["Default"],
         rendering_mode=rendering_mode,
         robot=robot,
-        no_rendering=True
+        #no_rendering=True # TODO: undo
     )
 
     for i, full_path in enumerate(ep_paths):
@@ -70,7 +70,8 @@ if __name__ == "__main__":
                 # 2. Try to get ground truth (prefer master)
                 traj_qpos_gt = get_joint_data(f, 'master')
                 if traj_qpos_gt is None:
-                    traj_qpos_gt = traj_qpos_actions
+                    traj_qpos_gt = np.copy(traj_qpos_actions)[1:]
+                    traj_qpos_actions = traj_qpos_actions[:-1]
                 
                 if traj_qpos_actions is None:
                     print(f"Skipping {ep_names[i]}: Could not find joint data in 'puppet' or 'master'.")

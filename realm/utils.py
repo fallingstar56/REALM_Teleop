@@ -5,9 +5,9 @@ import random
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
 
 import omnigibson as og
-import omnigibson.lazy as lazy
 
 from realm.environments.env_dynamic import RealmEnvironmentDynamic
 
@@ -57,6 +57,7 @@ def replay_traj(env: RealmEnvironmentDynamic, trajectory_actions, trajectory_gt_
     max_steps = min(len(trajectory_actions), max_steps)
 
     qpos = []
+    video = [] if not env.no_rendering else None
     ee_pos_list = []
     ee_rot_list = []
 
@@ -69,6 +70,10 @@ def replay_traj(env: RealmEnvironmentDynamic, trajectory_actions, trajectory_gt_
         obs, curr_task_progression, terminated, truncated, info = env.step(action)
 
     for t in range(max_steps):
+        base_im = None if env.no_rendering else obs['external']['external_sensor0']['rgb'].cpu().numpy()[..., :3]
+        if base_im is not None and video is not None:
+            video.append(base_im)
+
         robot_state = obs[env.robot.name]['proprio'].cpu().numpy()
         qpos.append(robot_state[:dof])
 
@@ -78,6 +83,12 @@ def replay_traj(env: RealmEnvironmentDynamic, trajectory_actions, trajectory_gt_
 
         action = np.concatenate((trajectory_actions[t, :dof], np.atleast_1d(np.zeros(1))))
         obs, curr_task_progression, terminated, truncated, info = env.step(action)
+
+    # Save debug replay video:
+    if video is not None:
+        video = np.stack(video)
+        save_filename = f"/app/logs/debug_ur5_replay"
+        ImageSequenceClip(list(video), fps=15).write_videofile(save_filename + ".mp4", codec="libx264")
 
     # Stack trajectories
     qpos_joints = np.stack(qpos)

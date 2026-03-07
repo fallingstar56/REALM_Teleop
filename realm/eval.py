@@ -156,7 +156,7 @@ def evaluate(
 
         timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H:%M:%S")
 
-        #video_recorder = VideoRecorder(log_dir, timestamp, run_id, task, perturbations[0])
+        video_recorder = VideoRecorder(log_dir, timestamp, run_id, task, perturbations[0])
 
         qpos = []
         actions = []
@@ -224,8 +224,8 @@ def evaluate(
                 else:
                     action_buffer.put(pred_action_chunk)
 
-            #if not no_render:
-            #    video_recorder.add_frame(base_im, wrist_im, base_im_second)
+            if not no_render:
+                video_recorder.add_frame(base_im, wrist_im, base_im_second)
 
             qpos.append(np.concatenate((robot_state, np.atleast_1d(np.array(gripper_state)))))
 
@@ -320,10 +320,10 @@ def evaluate(
             "object_drops": drops
         })
 
-        #if not no_render:
-        #    video_filename = os.path.join(log_dir, "videos", f"{task}_{perturbations[0]}_{run_id}")
-        #    video_recorder.save_video(video_filename)
-        #video_recorder.cleanup()
+        if not no_render:
+           video_filename = os.path.join(log_dir, "videos", f"{task}_{perturbations[0]}_{run_id}")
+           video_recorder.save_video(video_filename)
+        video_recorder.cleanup()
 
         qpos_filename = os.path.join(log_dir, "qpos", f"{task}_{perturbations[0]}_{run_id}")
         os.makedirs(log_dir + "/qpos", exist_ok=True)

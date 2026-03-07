@@ -63,7 +63,7 @@ def set_rendering_mode(rendering_mode):
                 )
             carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", True)
 
-        carb_settings.set("/persistent/omnihydra/useSceneGraphInstancing", True)
+        #carb_settings.set("/persistent/omnihydra/useSceneGraphInstancing", True)
         enable_interactive_path_tracing(carb_settings, samples_per_pixel=8)
     elif rendering_mode == "r":
         carb_settings.set_string("/rtx/rendermode", "RaytracedLighting")
