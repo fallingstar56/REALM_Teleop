@@ -13,8 +13,9 @@ DEBUG=false
 MULTI_VIEW_FLAG=""
 RESUME_FLAG=""
 RESUME=false
-RENDERING_MODE_FLAG=""
 ROBOT_FLAG=""
+RENDERING_MODE="rt"
+
 
 expand_ids() {
   echo "$1" | tr ',' '\n' | while read -r r; do

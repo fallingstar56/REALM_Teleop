@@ -48,7 +48,6 @@ done
 
 #---------------------------------------------------------------------------------
 
-# TODO: try commenting these out to see if it runs faster on clara??
 export HF_HOME=$REALM_ROOT/hf_cache
 export HUGGINGFACE_HUB_CACHE=$REALM_ROOT/hf_cache
 [[ -d "$HF_HOME" ]] || mkdir -p "$HF_HOME"
@@ -60,7 +59,7 @@ port=$((BASE_PORT + PERTURBATION_ID + 100 * TASK_ID))
 
 if [ "$DEBUG" = "false" ]; then
   if [ "$MODEL" = "openpi" ]; then
-    POLICY_SIF="/scratch/project/open-34-32/sedlam/projects/openpi_realm/uv_cuda128.sif"
+    POLICY_SIF="/scratch/project/open-34-32/sedlam/projects/REALM_openpi/uv_cuda128.sif"
     cd "$POLICY_RUN_DIR" || exit
     apptainer exec \
       --writable-tmpfs \
@@ -89,10 +88,6 @@ if [ "$DEBUG" = "false" ]; then
       $POLICY_SIF /bin/bash -c "source /opt/conda/etc/profile.d/conda.sh && conda activate && pip install tyro && pip install /app/packages/openpi-client && python /app/inference/run_molmoact_server.py --port=${port}"
     sleep 120
   elif [ "$MODEL" == "GR00T" ]; then
-    #/scratch/project/open-34-32/sedlam/projects/Isaac-GR00T
-    #/scratch/project/open-34-32/sedlam/projects/Isaac-GR00T/checkpoint-35000
-    #export XDG_CACHE_HOME=/scratch/project/open-34-32/ponimatkin/python_cache
-    #POLICY_SIF="/scratch/project/open-34-32/sedlam/projects/Isaac-GR00T_REALM/uv_cuda128_v2.sif"
     cd "$POLICY_RUN_DIR" || exit
     uv run scripts/serve_gr00t.py \
       --port=$port \
