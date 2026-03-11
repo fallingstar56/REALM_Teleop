@@ -900,31 +900,14 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         if obs is None:
             obs, _ = self.reset()
 
-        if self.ee_control:
-            ee_pos, ee_rot  = self.get_ee_pose()
-            droid_base_height = DROID_BASE_HEIGHT if self.use_droid_with_base else 0.0
-
-            # Rotate and translate xyz
-            yaw = self.robot_rot_rad[2]
-            cos_y, sin_y = np.cos(yaw), np.sin(yaw)
-            dx, dy = ee_pos[0] - self.robot_pos[0], ee_pos[1] - self.robot_pos[1]
-            x_rel = cos_y * dx + sin_y * dy
-            y_rel = -sin_y * dx + cos_y * dy
-            z_rel = ee_pos[2] - self.robot_pos[2] - droid_base_height
-
-            # Compose predicted orientation with robot base yaw
-            R_base = R.from_euler('z', yaw)
-            R_pred = R.from_euler('xyz', action[3:6])
-            action[3:6] = (R_base * R_pred).as_euler('xyz')
-
-            R_base = R.from_euler('z', yaw)
-            euler_world = R.from_quat(ee_rot).as_euler('xyz')
-            euler_rel = (R_base.inv() * R.from_euler('xyz', euler_world)).as_euler('xyz')
-            ee_cmd = np.array([x_rel, y_rel, z_rel, euler_rel[0], euler_rel[1], euler_rel[2]])
-
         for t in range(30):
             gripper_val = np.atleast_1d(1.0 if t < 15 else -1.0)
             if self.ee_control:
+                ee_pos, ee_rot = self.get_ee_pose()
+                droid_base_height = DROID_BASE_HEIGHT if self.use_droid_with_base else 0.0
+                ee_rot = R.from_quat(ee_rot.cpu().numpy()).as_euler('xyz')
+                ee_cmd = np.concatenate([ee_pos, ee_rot])
+                ee_cmd[2] -= droid_base_height
                 new_action = np.concatenate((ee_cmd, gripper_val))
             else:
                 new_action = np.concatenate((self.reset_qpos[:7], gripper_val))
