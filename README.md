@@ -22,105 +22,93 @@ git clone https://github.com/martin-sedlacek/REALM.git
 cd REALM
 ```
 
-2. Run the set-up script and download sim assets: 
-```
-# [RECOMMENDED OPTION] Docker installation (with downloading the dataset):
+2. Run the setup script:
+```bash
+# [RECOMMENDED] Docker:
 ./setup.sh --docker --dataset
 
-# Using a custom dataset path: 
+# w/ custom dataset path:
 ./setup.sh --docker --dataset --data-path /path/to/dataset
 
-# [UNSTABLE] Apptainer installation (with downloading the dataset):
+# Apptainer (HPC clusters, less stable):
 ./setup.sh --apptainer --dataset
-
-# Using a custom apptainer .sif path: 
-./setup.sh --apptainer --dataset --sif-path /path/to/realm.sif
 ```
 
 > ❗ **Please note that running with apptainer is currently not stable.**
 > We noticed that the apptainer can crash inexplicably on some systems. 
 > It is recommended to use the stable Docker container if possible.
 
+# Quick Start (Pi0.5 evaluation)
 
-# Example Workflow: Pi0-FAST evaluation
-> ⚠️ This example is provided for a single evaluation run on local hardware using an NVIDIA GPU with at least 16GB of VRAM. 
-> This is required to run both the VLA model and underlying isaacsim on the same card.
-
-
-1. Setup the model from openpi (https://github.com/Physical-Intelligence/openpi):
-```
+1. Start a model server (e.g., [openpi](https://github.com/Physical-Intelligence/openpi)):
+```bash
 git clone https://github.com/Physical-Intelligence/openpi.git
 cd openpi
 uv sync
 XLA_PYTHON_CLIENT_MEM_FRACTION=0.5 uv run scripts/serve_policy.py policy:checkpoint \
-    --policy.config=pi0_fast_droid_jointpos_polaris \
-    --policy.dir=gs://openpi-assets/checkpoints/pi0_fast_droid_jointpos
-
-# [ALTERNATIVE] running the latest pi0.5 in jointpos mode:
-XLA_PYTHON_CLIENT_MEM_FRACTION=0.5 uv run scripts/serve_policy.py policy:checkpoint \
-    --policy.config=pi05_droid_jointpos_polaris \
-    --policy.dir=gs://openpi-assets/checkpoints/polaris/pi05_droid_jointpos_polaris
+    --policy.config=pi05_full_droid_finetune \
+    --policy.dir=gs://openpi-assets/checkpoints/pi05_droid_jointpos
 ```
-> ❗ Set XLA_PYTHON_CLIENT_MEM_FRACTION such that you have at least 8GB+ free on the GPU for isaacsim.
 
-> ⚠️ In general, make sure you are using models that output **absolute joint configurations** as REALM currently expects action to be in this format.
-
-2. From the REALM project root, open the containerized environment:
-```
-# [RECOMMENDED OPTION] Docker:
+2. Open the containerized environment:
+```bash
+cd $REALM_ROOT
 source ./scripts/run_docker.sh
-
-# [UNSTABLE] Apptainer:
-source ./scripts/run_apptainer.sh
 ```
 
-3. Inside the container run:
-```
-# With real-time GUI:
-python /app/examples/01_pi0_eval.py
-
-# In headless mode:
+3. Run an evaluation inside the container:
+```bash
 OMNIGIBSON_HEADLESS=1 python /app/examples/01_pi0_eval.py
 ```
 
-This should produce a rollout video and a numpy report file with the evaluation results inside the logs folder.
+4. View results in the REALM viewer:
+```bash
+# !!! Set this to point to your local REALM logs folder:
+export REALM_LOGS=</path/to/REALM/logs> # e.g., /home/my_user/projects/REALM/logs
 
-# End-to-end VLA benchmarking in REALM
-
-Follow steps 1 and 2 as above. Then run:
+git clone https://github.com/martin-sedlacek/REALM_toolkit.git
+cd REALM_toolkit
+uv sync
+uv run streamlit run realm_viewer/dashboard.py
 ```
-OMNIGIBSON_HEADLESS=1 python /app/realm/eval.py \
-    --perturbation_id <PERTURBATION_ID [0-15]> \
-    --task_id <TASK_ID [0-9]> \
+
+This will open a web UI where you can view results from the experiments. Navigate to the experiment created from step 3
+and scroll to the bottom. Click on the "unpack video parquet" and view the video of your simulated rollout. 
+
+# Full benchmark evaluation:
+```bash
+# Example:
+examples/02_evaluate.py \
+    --perturbation_id <0-15> \
+    --task_id <0-9> \
     --repeats 25 \
     --max_steps 800 \
-    --model pi0_FAST
+    --model_name pi05 \
+    --model_type openpi \
+    --port 8000 \
+    --experiment_name my_full_eval
 ```
 
-### Resume Functionality 🔄
-If a benchmarking run is interrupted (e.g., due to a timeout or crash), you can resume it from where it left off.
+## Resume Functionality
 
-To resume a run, you must provide the `--resume` flag AND the `--run-id` of the run you wish to resume. The `run-id` corresponds to the timestamp folder name created in your logs directory (e.g., `20240101_120000`).
+If a run is interrupted, resume from where it left off by providing the `--resume` flag and the `--run_id` of the previous run (the timestamp folder in your logs directory):
 
-Example using the cluster script:
 ```bash
-./scripts/karolina/run_eval_for_ckpt.sh \
-    ... (other args) ... \
-    --run-id 20240101_120000 \
-    --resume
+OMNIGIBSON_HEADLESS=1 python /app/examples/02_evaluate.py \
+    ... (same args as original) ... \
+    --run_id 20240101_120000 --resume
 ```
 
-**⚠️ Important Pitfalls:**
-*   **Correct Run ID:** You **must** provide the exact `run-id` (timestamp) of the previous run. If you omit it, a new timestamp will be generated, and the script will look for reports in a new (empty) directory, effectively starting a fresh run.
-*   **Identical Configuration:** Ensure all other arguments (task IDs, perturbation IDs, model, etc.) match the original run. Changing parameters might lead to inconsistent results or errors.
-*   **Granularity:** Resuming happens at the granularity of individual evaluation repeats. If a repeat was interrupted halfway, it will be restarted from the beginning. Completed repeats will be skipped.
+Completed repeats are skipped. Ensure all arguments match the original run.
+
+# Tasks and Perturbations
 
 | PERTURBATION_ID | Perturbation | Description                                                                                     | Category |
 |:----------------| :--- |:------------------------------------------------------------------------------------------------| :--- |
 | 0               | **Default** | Testing a skill under no specific perturbations.                                                | General |
 | 1               | **V-AUG** | Randomize *blur* and *contrast*.                                                                | Visual |
-| 2               | **V-SC** | Randomly spawn *new distractors* in the scene.                                                  | Visual |
-| 3               | **V-VIEW** | Random shifts to external *camera pose*.                                                        | Visual |
+| 2               | **V-VIEW** | Random shifts to external *camera pose*.                                                        | Visual |
+| 3               | **V-SC** | Randomly spawn *new distractors* in the scene.                                                  | Visual |
 | 4               | **V-LIGHT** | Randomize illumination *color* and *intensity*.                                                 | Visual |
 | 5               | **S-PROP** | Reference objects based on their properties.                                                    | Semantic |
 | 6               | **S-LANG** | Reference similar verbs and remove articles.                                                    | Semantic |
@@ -128,10 +116,10 @@ Example using the cluster script:
 | 8               | **S-AFF** | Reference human needs and use cases.                                                            | Semantic |
 | 9               | **S-INT** | Reference facts about the world that typically require knowledge from Internet-scale text data. | Semantic |
 | 10              | **B-HOBJ** | Randomize manipulated object *mass*.                                                            | Behavioral |
-| 11              | **VB-POSE** | Randomize manipulated *object pose*.                                                            | Visual + Behavioral |
-| 12              | **VB-MOBJ** | Randomize object *size* and *shape*.                                                            | Visual + Behavioral |
-| 13              | **SB-NOUN** | Reference *another known object* in the scene.                                                  | Semantic + Behavioral |
-| 14              | **SB-VRB** | Change the *tested skill* for another compatible one.                                           | Semantic + Behavioral |
+| 11              | **SB-NOUN** | Reference *another known object* in the scene.                                                  | Semantic + Behavioral |
+| 12              | **SB-VRB** | Change the *tested skill* for another compatible one.                                           | Semantic + Behavioral |
+| 13              | **VB-POSE** | Randomize manipulated *object pose*.                                                            | Visual + Behavioral |
+| 14              | **VB-MOBJ** | Randomize object *size* and *shape*.                                                            | Visual + Behavioral |
 | 15              | **VSB-NOBJ** | Sample a *new unseen manipulated object*.                                                       | Visual + Semantic + Behavioral |
 
 | TASK_ID | Task |
@@ -174,8 +162,6 @@ Tabular results for the tested VLA models:
 | **V-Avg.** | 0.37 (-0.07 $\downarrow$) | 0.54 (-0.08 $\downarrow$) | 0.14 (-0.05 $\downarrow$) |
 | **S-Avg.** | 0.30 (-0.14 $\downarrow$) | 0.50 (-0.11 $\downarrow$) |      0.19 (-0.00 -)       |
 | **B-Avg.** | 0.30 (-0.13 $\downarrow$) | 0.44 (-0.17 $\downarrow$) | 0.13 (-0.06 $\downarrow$) |
-
-⏰ Instructions on using REALM for benchmarking using custom models and running at scale will be added soon.
 
 # Roadmap 🚧
 - [x] Streamlined installation

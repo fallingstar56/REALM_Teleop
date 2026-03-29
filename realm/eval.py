@@ -6,13 +6,14 @@ import random
 import csv
 import numpy as np
 import torch
+from scipy.spatial.transform import Rotation as Rot
 
 import omnigibson as og
 from omnigibson.macros import gm
 
 from realm.environments.env_dynamic import RealmEnvironmentDynamic
 from realm.inference import InferenceClient, extract_from_obs
-from realm.logging import VideoRecorder, save_results_to_csv
+from realm.realm_logging import VideoRecorder, save_results, append_trajectory, append_video
 
 
 
@@ -32,8 +33,8 @@ SUPPORTED_TASKS = [
 SUPPORTED_PERTURBATIONS = [
     'Default', #0
     'V-AUG', # 1
-    'V-VIEW', # 2
-    'V-SC', # 3
+    'V-VIEW',  # 2
+    'V-SC', # 1
     'V-LIGHT', # 4
     'S-PROP', # 5
     'S-LANG', # 6
@@ -43,8 +44,8 @@ SUPPORTED_PERTURBATIONS = [
     'B-HOBJ', # 10
     'SB-NOUN', # 11
     'SB-VRB', # 12
-    'VB-POSE', # 13
-    'VB-MOBJ', # 14
+    'VB-POSE',  # 13
+    'VB-MOBJ',  # 14
     'VSB-NOBJ' # 15
 ]
 
@@ -83,6 +84,7 @@ def evaluate(
         horizon=8,
         model_type="pi0_FAST",
         port=8000,
+        host="127.0.0.1",
         log_dir="/app/logs",
         resume=False,
         multi_view=False,
@@ -94,6 +96,8 @@ def evaluate(
 ):
     start = time.perf_counter()
     og.log.info(f"DEBUG: Begin eval: {time.perf_counter() - start:.4f}s")
+    if rendering_mode is None:
+        rendering_mode = "rt"
     set_sim_config(rendering_mode=rendering_mode, robot=robot)
 
     # -------------------- Create the environment + client --------------------
@@ -111,7 +115,7 @@ def evaluate(
     os.makedirs(log_dir, exist_ok=True)
 
     model_type = model_type # TODO: infer type from model name, rn this will just default to a pi model inference inside the client
-    client = InferenceClient(model_type, port)
+    client = InferenceClient(model_type, host=host, port=port)
     og.log.info(f"DEBUG: Client connected: {time.perf_counter() - start:.4f}s")
 
     env = RealmEnvironmentDynamic(
@@ -127,22 +131,20 @@ def evaluate(
 
     results = []
     start_repeat = 0
-    csv_filename = None
+    results_filename = None
 
     if resume:
-        # find matching file
-        potential_filename = os.path.join(log_dir, "reports", f"{task}_{perturbations[0]}.csv")
-        if os.path.exists(potential_filename):
-            csv_filename = potential_filename
-            # read existing results
-            with open(csv_filename, 'r') as f:
+        potential_csv = os.path.join(log_dir, "reports", f"{task}_{perturbations[0]}.csv")
+        if os.path.exists(potential_csv):
+            results_filename = potential_csv
+            with open(results_filename, 'r') as f:
                 reader = csv.DictReader(f)
                 existing_results = list(reader)
             results = existing_results
             start_repeat = len(results)
-            og.log.info(f"Resuming run from repeat {start_repeat}. Using file: {csv_filename}")
+            og.log.info(f"Resuming run from repeat {start_repeat}. Using file: {results_filename}")
         else:
-            og.log.info(f"Resume requested but no report found at {potential_filename}. Starting fresh.")
+            og.log.info(f"Resume requested but no report found. Starting fresh.")
 
     for run_id in range(repeats):
         # ------------------------ pre-configure each run --------------------------------
@@ -211,10 +213,18 @@ def evaluate(
             was_grasping = is_grasping
 
             if action_buffer.empty():
+                # Compute robot-relative cartesian position for models that need it (e.g. DreamZero)
+                _ee_pos = ee_pos.cpu().numpy() if hasattr(ee_pos, 'cpu') else np.array(ee_pos)
+                _ee_rot = ee_rot.cpu().numpy() if hasattr(ee_rot, 'cpu') else np.array(ee_rot)
+                _ee_euler = Rot.from_quat(_ee_rot).as_euler('xyz')
+                _ee_pose_world = np.concatenate([_ee_pos, _ee_euler])
+                cartesian_position = env._world2robot(_ee_pose_world).astype(np.float32)
+
                 pred_action_chunk = client.infer(
                     env.instruction, base_im, base_im_second, wrist_im, robot_state, gripper_state,
                     use_base_im_second=(env.task_type == "open_close_drawer" if hasattr(env, "task_type") else False),
-                    ee_control=env.ee_control
+                    ee_control=env.ee_control,
+                    cartesian_position=cartesian_position
                 )
 
                 if len(pred_action_chunk.shape) == 2:
@@ -235,7 +245,13 @@ def evaluate(
             actions.append(action)
 
             new_action = action.copy()
-            new_action[-1] = 1 if action[-1] > 0.5 else -1  # Prediction: (1,0) -> Target: (1,-1)
+            if model_type in ["debug", "openpi", "GR00T", "GR00T_N16", "dreamzero"]: # TODO: use a model config
+                new_action[-1] = 1 if action[-1] > 0.5 else -1  # Prediction: (1,0) -> Target: (1,-1)
+            elif model_type == "molmoact":
+                new_action[-1] = 1 if action[-1] < 0.5 else -1  # Prediction: (0,1) -> Target: (1,-1)
+            else:
+                raise NotImplementedError()
+
 
             # new_gripper_state = 1 if action[-1] > 0.5 else -1  # Prediction: (1,0) -> Target: (1,-1)
             # new_gripper_state = np.atleast_1d(np.array(new_gripper_state))
@@ -300,7 +316,7 @@ def evaluate(
         if task_progression == 1.0 and hasattr(env, "task_type") and env.task_type in ["put", "stack"]:
             drops = max(0, drops - 1)
 
-        results.append({
+        result_entry = {
             "run_id": run_id,
             "task": task,
             "perturbation": perturbations[0],
@@ -321,25 +337,30 @@ def evaluate(
             "collisions_self": collisions_self,
             "collisions_env": collisions_env,
             "object_drops": drops
-        })
+        }
+
+        result_entry["qpos"] = np.stack(qpos).tolist()
+        result_entry["actions"] = np.stack(actions).tolist()
+        if not no_record:
+            video_bytes = video_recorder.get_video_bytes()
+            result_entry["video"] = video_bytes
+        
+        results.append(result_entry)
 
         if not no_record:
-            video_filename = os.path.join(log_dir, "videos", f"{task}_{perturbations[0]}_{run_id}")
-            video_recorder.save_video(video_filename)
+            append_video(log_dir, task, perturbations[0], run_id, video_bytes)
+
+        append_trajectory(log_dir, task, perturbations[0], run_id, np.stack(qpos), np.stack(actions))
+
+        if not no_record:
             video_recorder.cleanup()
 
-        qpos_filename = os.path.join(log_dir, "qpos", f"{task}_{perturbations[0]}_{run_id}")
-        os.makedirs(log_dir + "/qpos", exist_ok=True)
-        np.save(qpos_filename, np.stack(qpos))
+        client.reset()
 
-        actions_filename = os.path.join(log_dir, "actions", f"{task}_{perturbations[0]}_{run_id}")
-        os.makedirs(log_dir + "/actions", exist_ok=True)
-        np.save(actions_filename, np.stack(actions))
-
-        csv_filename = save_results_to_csv(results, log_dir + "/reports", task, perturbations[0], filename=csv_filename)
+        results_filename = save_results(results, log_dir + "/reports", task, perturbations[0], filename=results_filename)
 
     # ------------------------------------------------------------------------------
-    save_results_to_csv(results, log_dir+"/reports", task, perturbations[0])
+    save_results(results, log_dir+"/reports", task, perturbations[0])
     og.log.info("Done!")
     og.log.info(f"DEBUG: Done: {time.perf_counter() - start:.4f}s")
 
