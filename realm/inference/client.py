@@ -5,9 +5,9 @@ import omnigibson as og
 from openpi_client import websocket_client_policy, image_tools
 
 from realm.helpers import axisangle_to_rpy
-from realm.inference.base import ExternalRobotInferenceClient
-from realm.inference.hamster import HamsterClient
-from realm.inference.dreamzero import DreamZeroClient
+#from realm.inference.base import ExternalRobotInferenceClient
+#from realm.inference.hamster import HamsterClient
+#from realm.inference.dreamzero import DreamZeroClient
 
 
 class InferenceClient:
@@ -15,13 +15,13 @@ class InferenceClient:
         self.model_type = model_type
         self.host = host
         self.port = port
-        if model_type == "GR00T_N16":
-            self.client = ExternalRobotInferenceClient(host=self.host, port=self.port)
-        elif model_type == "hamster":
-            self.client = HamsterClient(host=self.host, port=self.port)
-        elif model_type == "dreamzero":
-            self.client = DreamZeroClient(host=self.host, port=self.port)
-        elif model_type == "openpi":
+        # if model_type == "GR00T_N16":
+        #     self.client = ExternalRobotInferenceClient(host=self.host, port=self.port)
+        # elif model_type == "hamster":
+        #     self.client = HamsterClient(host=self.host, port=self.port)
+        # elif model_type == "dreamzero":
+        #     self.client = DreamZeroClient(host=self.host, port=self.port)
+        if model_type == "openpi":
             og.log.info("Connecting to server...")
             self.client = websocket_client_policy.WebsocketClientPolicy(
                 host=host,
