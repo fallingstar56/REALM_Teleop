@@ -43,6 +43,8 @@ RUN micromamba run -n omnigibson pip install numpy==1.26.0
 
 RUN micromamba run -n omnigibson pip install pandas==2.3.3
 
+RUN micromamba run -n omnigibson pip install pyarrow fastparquet
+
 WORKDIR /omnigibson-src
 
 ENTRYPOINT ["micromamba", "run", "-n", "omnigibson"]

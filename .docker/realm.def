@@ -30,7 +30,9 @@ From: stanfordvl/omnigibson:1.1.1
         micromamba run -n omnigibson pip install --no-cache-dir \
             "numpy==1.26.0"
         micromamba run -n omnigibson pip install --no-cache-dir \
-            "pandas==2.3.3"
+            "pandas==2.3.3" \
+            pyarrow \
+            fastparquet
     '
     cp /opt/modified_entity_prim.py /omnigibson-src/omnigibson/prims/entity_prim.py
     rm /opt/modified_entity_prim.py
