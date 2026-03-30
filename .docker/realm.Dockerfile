@@ -34,6 +34,8 @@ RUN micromamba run -n omnigibson pip install --no-cache-dir \
 
 RUN micromamba run -n omnigibson pip install numpy==1.26.0
 
+RUN micromamba run -n omnigibson pip install pandas==2.3.3
+
 WORKDIR /omnigibson-src
 
 ENTRYPOINT ["micromamba", "run", "-n", "omnigibson"]
