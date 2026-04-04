@@ -15,7 +15,7 @@ from realm.environments.env_dynamic import RealmEnvironmentDynamic
 from realm.inference import InferenceClient, extract_from_obs
 from realm.realm_logging import VideoRecorder, save_results, append_trajectory, append_video
 
-
+from controllers.oculus_controller import VRPolicy
 
 SUPPORTED_TASKS = [
     "put_green_block_into_bowl", #0
@@ -114,10 +114,12 @@ def evaluate(
 
     os.makedirs(log_dir, exist_ok=True)
 
+    """
     model_type = model_type # TODO: infer type from model name, rn this will just default to a pi model inference inside the client
     client = InferenceClient(model_type, host=host, port=port)
     og.log.info(f"DEBUG: Client connected: {time.perf_counter() - start:.4f}s")
-
+    """
+    
     env = RealmEnvironmentDynamic(
         config_path="/app/realm/config",
         task_cfg_path=task_cfg_path,
@@ -181,13 +183,19 @@ def evaluate(
         drops = 0
         was_grasping = False
 
+        # Use the Oculus VR controller input
+        controller = VRPolicy()
+
         while t < max_steps and terminal_steps > 0:
+            # Extract the relevant information from the observation for the model
             base_im, base_depth, base_im_second, base_depth_second, wrist_im, robot_state, gripper_state = extract_from_obs(obs, robot_name=env.robot.name)
 
             # Metrics collection
             ee_pos, ee_rot = env.get_ee_pose()
+            ee_position = np.concatenate([ee_pos, ee_rot])
             ee_poses.append(ee_pos)
 
+            # Check for collisions
             is_self_col, is_env_col = env.check_collisions()
             if is_self_col and not is_self_col_active:
                 collisions_self += 1
@@ -212,6 +220,7 @@ def evaluate(
                     drops += 1
             was_grasping = is_grasping
 
+            """
             if action_buffer.empty():
                 # Compute robot-relative cartesian position for models that need it (e.g. DreamZero)
                 _ee_pos = ee_pos.cpu().numpy() if hasattr(ee_pos, 'cpu') else np.array(ee_pos)
@@ -235,13 +244,25 @@ def evaluate(
                     action_buffer.put(pred_action_chunk)
                 else:
                     assert len(pred_action_chunk.shape) <= 2, f"Unsupported number of dimensions in action chunk with shape: {pred_action_chunk.shape}. The chunk is expected to be 2D."
-
+            """
+            
+            # controller._update_internal_state() 
+            # This is already running in a separate thread, do we need to call it here?
+            
+            if controller._state["poses"] == {}:
+                action = np.zeros(7)
+            else:
+                action = controller._calculate_action(ee_position, False)
+            
+            # TODO: Complete VR control, add logics of collecting data.
+            
             if not no_record:
                 video_recorder.add_frame(base_im, wrist_im, base_im_second)
 
             qpos.append(np.concatenate((robot_state, np.atleast_1d(np.array(gripper_state)))))
 
-            action = action_buffer.get()
+            action = action_buffer.get() #TODO: replace with actions from the VR
+            
             actions.append(action)
 
             new_action = action.copy()
