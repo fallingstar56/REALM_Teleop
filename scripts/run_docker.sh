@@ -77,4 +77,5 @@ docker run \
     -v $REALM_DATA_PATH/isaac-sim/data:/root/.local/share/ov/data:rw \
     -v $REALM_DATA_PATH/isaac-sim/documents:/root/Documents:rw \
     -v /usr/share/nvidia/nvoptix.bin:/usr/share/nvidia/nvoptix.bin:ro \
+    -v /dev/bus/usb:/dev/bus/usb \
     --network=host --rm -it realm

@@ -1,11 +1,10 @@
 import time
 
 import numpy as np
-from oculus_reader.reader import OculusReader
+from .oculus_reader.oculus_reader.reader import OculusReader
 
-from subprocess_utils import run_threaded_command
-from transformations import add_angles, euler_to_quat, quat_diff, quat_to_euler, rmat_to_quat
-
+from .subprocess_utils import run_threaded_command
+from .transformations import add_angles, euler_to_quat, quat_diff, quat_to_euler, rmat_to_quat
 
 def vec_to_reorder_mat(vec):
     X = np.zeros((len(vec), len(vec)))

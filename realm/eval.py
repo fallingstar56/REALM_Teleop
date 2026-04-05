@@ -14,8 +14,8 @@ from omnigibson.macros import gm
 from realm.environments.env_dynamic import RealmEnvironmentDynamic
 from realm.inference import InferenceClient, extract_from_obs
 from realm.realm_logging import VideoRecorder, save_results, append_trajectory, append_video
+from realm.controllers.oculus_controller import VRPolicy
 
-from controllers.oculus_controller import VRPolicy
 
 SUPPORTED_TASKS = [
     "put_green_block_into_bowl", #0
@@ -199,7 +199,9 @@ def evaluate(
         drops = 0
         was_grasping = False
 
-        controller = VRPolicy() if action_source == "teleop" else None
+        controller = None
+        if action_source == "teleop":
+            controller = VRPolicy()
 
         while t < max_steps and terminal_steps > 0:
             # Extract the relevant information from the observation for the model
