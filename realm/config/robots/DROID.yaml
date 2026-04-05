@@ -8,10 +8,11 @@ robots:
     action_type: "continuous"
     friction: [ 0.05, 0.10, 0.05, 0.10, 0.75, 0.425, 0.20 ]
     armature: [ 0.25, 0.50, 0.25, 0.50, 0.25, 0.150, 0.00 ]
-    controller_name: "CustomJointController"
+    controller_name: "DroidEndEffectorController"
     controller_config:
         arm_0:
-            name: "CustomJointController"
+            name: "DroidEndEffectorController"
+            mode: "cartesian_velocity"
             "motor_type": "position"
             control_freq: 15
             use_delta_commands: False
@@ -28,11 +29,12 @@ robots:
             min_effort: [ -87.0, -87.0, -87.0, -87.0, -12.0, -12.0, -12.0 ]
         gripper_0:
           name: "CustomGripperController"
-          mode: "binary"
+          mode: "smooth"
     sensor_config:
       VisionSensor:
         sensor_kwargs:
           image_height: 720
           image_width: 1280
           focal_length: 2.8
+    ee_control: True
 

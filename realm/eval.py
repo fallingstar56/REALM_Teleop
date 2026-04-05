@@ -129,6 +129,12 @@ def evaluate(
         rendering_mode=rendering_mode,
         robot=robot
     )
+    if not env.ee_control:
+        raise ValueError(
+            "VR teleop requires ee_control=true and DroidEndEffectorController. "
+            "Please use DROID EE controller config."
+        )
+    # Now we use DROID, and the controller name is DroidEndEffectorController, the mode is cartesian_velocity
     og.log.info(f"DEBUG: Env created: {time.perf_counter() - start:.4f}s")
 
     results = []
@@ -189,11 +195,15 @@ def evaluate(
         while t < max_steps and terminal_steps > 0:
             # Extract the relevant information from the observation for the model
             base_im, base_depth, base_im_second, base_depth_second, wrist_im, robot_state, gripper_state = extract_from_obs(obs, robot_name=env.robot.name)
-
+            
             # Metrics collection
             ee_pos, ee_rot = env.get_ee_pose()
-            ee_position = np.concatenate([ee_pos, ee_rot])
             ee_poses.append(ee_pos)
+            _ee_pos = ee_pos.cpu().numpy() if hasattr(ee_pos, 'cpu') else np.array(ee_pos)
+            _ee_rot = ee_rot.cpu().numpy() if hasattr(ee_rot, 'cpu') else np.array(ee_rot)
+            _ee_euler = Rot.from_quat(_ee_rot).as_euler('xyz')
+            _ee_pos_world = np.concatenate([_ee_pos, _ee_euler])
+            cartesian_position = env._world2robot(_ee_pos_world).astype(np.float32)
 
             # Check for collisions
             is_self_col, is_env_col = env.check_collisions()
@@ -246,25 +256,30 @@ def evaluate(
                     assert len(pred_action_chunk.shape) <= 2, f"Unsupported number of dimensions in action chunk with shape: {pred_action_chunk.shape}. The chunk is expected to be 2D."
             """
             
-            # controller._update_internal_state() 
-            # This is already running in a separate thread, do we need to call it here?
+            state_dict = {
+                "cartesian_position": cartesian_position,
+                "gripper_position": gripper_state
+            }
             
-            if controller._state["poses"] == {}:
-                action = np.zeros(7)
+            controller_info = controller.get_info()
+            has_pose = controller._state["poses"] != {}
+            
+            if ((not has_pose) or (not controller_info["controller_on"]) or (not controller_info["movement_enabled"])):
+                action = np.zeros(7, dtype=np.float32)
             else:
-                action = controller._calculate_action(ee_position, False)
-            
-            # TODO: Complete VR control, add logics of collecting data.
+                action = controller._calculate_action(state_dict, False).astype(np.float32)
+                action = np.clip(action, -1.0, 1.0)
             
             if not no_record:
                 video_recorder.add_frame(base_im, wrist_im, base_im_second)
 
             qpos.append(np.concatenate((robot_state, np.atleast_1d(np.array(gripper_state)))))
 
-            action = action_buffer.get() #TODO: replace with actions from the VR
-            
+            #action = action_buffer.get()
+            # During each loop, we execute one action
             actions.append(action)
 
+            """
             new_action = action.copy()
             if model_type in ["debug", "openpi", "GR00T", "GR00T_N16", "dreamzero"]: # TODO: use a model config
                 new_action[-1] = 1 if action[-1] > 0.5 else -1  # Prediction: (1,0) -> Target: (1,-1)
@@ -272,13 +287,14 @@ def evaluate(
                 new_action[-1] = 1 if action[-1] < 0.5 else -1  # Prediction: (0,1) -> Target: (1,-1)
             else:
                 raise NotImplementedError()
+            """
 
 
             # new_gripper_state = 1 if action[-1] > 0.5 else -1  # Prediction: (1,0) -> Target: (1,-1)
             # new_gripper_state = np.atleast_1d(np.array(new_gripper_state))
             # new_action = np.concatenate((new_action, new_gripper_state))
 
-            obs, curr_task_progression, terminated, truncated, info = env.step(new_action)
+            obs, curr_task_progression, terminated, truncated, info = env.step(action)
 
             if curr_task_progression > task_progression:
                 task_progression = curr_task_progression
@@ -376,7 +392,7 @@ def evaluate(
         if not no_record:
             video_recorder.cleanup()
 
-        client.reset()
+        #client.reset()
 
         results_filename = save_results(results, log_dir + "/reports", task, perturbations[0], filename=results_filename)
 
