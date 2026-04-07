@@ -18,15 +18,27 @@ class VRPolicy:
     def __init__(
         self,
         right_controller: bool = True,
-        max_lin_vel: float = 1,
-        max_rot_vel: float = 1,
+        max_lin_vel: float = 0.3,
+        max_rot_vel: float = 0.35,
         max_gripper_vel: float = 1,
         spatial_coeff: float = 1,
-        pos_action_gain: float = 5,
+        pos_action_gain: float = 2,
         rot_action_gain: float = 2,
         gripper_action_gain: float = 3,
         gripper_open_threshold: float = 0.35,
         gripper_close_threshold: float = 0.65,
+        pose_filter_alpha: float = 0.25,
+        rot_filter_alpha: float = 0.2,
+        trigger_filter_alpha: float = 0.35,
+        pos_deadband: float = 0.005,
+        rot_deadband: float = 0.035,
+        max_pos_error: float = 0.03,
+        max_rot_error: float = 0.2,
+        anti_windup_pos_alpha: float = 0.35,
+        action_filter_alpha: float = 0.4,
+        max_lin_step: float = 0.08,
+        max_rot_step: float = 0.12,
+        max_gripper_step: float = 1.0,
         rmat_reorder: list = [-2, -1, -3, 4],
     ):
         self.oculus_reader = OculusReader()
@@ -40,6 +52,18 @@ class VRPolicy:
         self.gripper_action_gain = gripper_action_gain
         self.gripper_open_threshold = gripper_open_threshold
         self.gripper_close_threshold = gripper_close_threshold
+        self.pose_filter_alpha = pose_filter_alpha
+        self.rot_filter_alpha = rot_filter_alpha
+        self.trigger_filter_alpha = trigger_filter_alpha
+        self.pos_deadband = pos_deadband
+        self.rot_deadband = rot_deadband
+        self.max_pos_error = max_pos_error
+        self.max_rot_error = max_rot_error
+        self.anti_windup_pos_alpha = anti_windup_pos_alpha
+        self.action_filter_alpha = action_filter_alpha
+        self.max_lin_step = max_lin_step
+        self.max_rot_step = max_rot_step
+        self.max_gripper_step = max_gripper_step
         self.global_to_env_mat = vec_to_reorder_mat(rmat_reorder)
         self.controller_id = "r" if right_controller else "l"
         self.reset_orientation = True
@@ -60,8 +84,11 @@ class VRPolicy:
         self.robot_origin = None
         self.vr_origin = None
         self.vr_state = None
+        self.filtered_vr_state = None
+        self.filtered_trigger_value = 0.0
         self.gripper_target = 0.0
         self.last_gripper_action = 1.0
+        self.last_action = np.zeros(7, dtype=np.float32)
 
     def _get_trigger_key(self):
         return "rightTrig" if self.controller_id == "r" else "leftTrig"
@@ -72,8 +99,43 @@ class VRPolicy:
             return float(trigger_value[0])
         return float(trigger_value)
 
+    def _low_pass(self, current, previous, alpha):
+        if previous is None:
+            return current
+        return alpha * current + (1.0 - alpha) * previous
+
+    def _apply_deadband(self, value, threshold):
+        norm = np.linalg.norm(value)
+        if norm <= threshold:
+            return np.zeros_like(value)
+        return value * (norm - threshold) / max(norm, 1e-8)
+
+    def _clip_norm(self, value, max_norm):
+        norm = np.linalg.norm(value)
+        if norm <= max_norm:
+            return value
+        return value * max_norm / max(norm, 1e-8)
+
+    def _clip_delta(self, current, previous, max_step):
+        delta = current - previous
+        delta_norm = np.linalg.norm(delta)
+        if delta_norm <= max_step:
+            return current
+        return previous + delta * max_step / max(delta_norm, 1e-8)
+
+    def _smooth_action(self, action):
+        smoothed = action.astype(np.float32).copy()
+        smoothed[:3] = self._clip_delta(smoothed[:3], self.last_action[:3], self.max_lin_step)
+        smoothed[3:6] = self._clip_delta(smoothed[3:6], self.last_action[3:6], self.max_rot_step)
+        smoothed[6:] = self._clip_delta(smoothed[6:], self.last_action[6:], self.max_gripper_step)
+        smoothed = self.action_filter_alpha * smoothed + (1.0 - self.action_filter_alpha) * self.last_action
+        self.last_action = smoothed.astype(np.float32)
+        return self.last_action
+
     def _update_gripper_target(self):
         trigger_value = self._get_trigger_value()
+        self.filtered_trigger_value = self._low_pass(trigger_value, self.filtered_trigger_value, self.trigger_filter_alpha)
+        trigger_value = self.filtered_trigger_value
         if trigger_value >= self.gripper_close_threshold:
             self.gripper_target = 1.0
         elif trigger_value <= self.gripper_open_threshold:
@@ -135,6 +197,20 @@ class VRPolicy:
             "gripper_raw": vr_gripper_raw,
         }
 
+        if self.filtered_vr_state is None:
+            self.filtered_vr_state = dict(self.vr_state)
+        else:
+            self.filtered_vr_state["pos"] = self._low_pass(
+                self.vr_state["pos"], self.filtered_vr_state["pos"], self.pose_filter_alpha
+            )
+            quat_delta = quat_diff(self.vr_state["quat"], self.filtered_vr_state["quat"])
+            quat_delta_euler = self._low_pass(
+                quat_to_euler(quat_delta), np.zeros(3, dtype=np.float64), self.rot_filter_alpha
+            )
+            self.filtered_vr_state["quat"] = euler_to_quat(add_angles(quat_delta_euler, quat_to_euler(self.filtered_vr_state["quat"])))
+            self.filtered_vr_state["gripper"] = vr_gripper
+            self.filtered_vr_state["gripper_raw"] = vr_gripper_raw
+
     def _limit_velocity(self, lin_vel, rot_vel, gripper_vel):
         """Scales down the linear and angular magnitudes of the action"""
         lin_vel_norm = np.linalg.norm(lin_vel)
@@ -154,6 +230,12 @@ class VRPolicy:
             self._process_reading()
             self.update_sensor = False
 
+        if self.filtered_vr_state is None:
+            action = np.zeros(7, dtype=np.float32)
+            if include_info:
+                return action, {}
+            return action
+
         # Read Observation
         robot_pos = np.array(state_dict["cartesian_position"][:3])
         robot_euler = state_dict["cartesian_position"][3:]
@@ -163,22 +245,29 @@ class VRPolicy:
         # Reset Origin On Release #
         if self.reset_origin:
             self.robot_origin = {"pos": robot_pos, "quat": robot_quat}
-            self.vr_origin = {"pos": self.vr_state["pos"], "quat": self.vr_state["quat"]}
+            self.vr_origin = {"pos": self.filtered_vr_state["pos"], "quat": self.filtered_vr_state["quat"]}
             self.reset_origin = False
 
         # Calculate Positional Action #
         robot_pos_offset = robot_pos - self.robot_origin["pos"]
-        target_pos_offset = self.vr_state["pos"] - self.vr_origin["pos"]
-        pos_action = target_pos_offset - robot_pos_offset
+        target_pos_offset = self.filtered_vr_state["pos"] - self.vr_origin["pos"]
+        raw_pos_action = target_pos_offset - robot_pos_offset
+        pos_action = self._apply_deadband(raw_pos_action, self.pos_deadband)
+        pos_action = self._clip_norm(pos_action, self.max_pos_error)
+        pos_excess = raw_pos_action - pos_action
+        if np.linalg.norm(pos_excess) > 1e-6:
+            self.vr_origin["pos"] = self.vr_origin["pos"] + self.anti_windup_pos_alpha * pos_excess
 
         # Calculate Euler Action #
         robot_quat_offset = quat_diff(robot_quat, self.robot_origin["quat"])
-        target_quat_offset = quat_diff(self.vr_state["quat"], self.vr_origin["quat"])
+        target_quat_offset = quat_diff(self.filtered_vr_state["quat"], self.vr_origin["quat"])
         quat_action = quat_diff(target_quat_offset, robot_quat_offset)
         euler_action = quat_to_euler(quat_action)
+        euler_action = self._apply_deadband(euler_action, self.rot_deadband)
+        euler_action = self._clip_norm(euler_action, self.max_rot_error)
 
         # Positive command opens the binary gripper, negative command closes it.
-        if self.vr_state["gripper"] >= 0.5:
+        if self.filtered_vr_state["gripper"] >= 0.5:
             gripper_action = -1.0 if robot_gripper < 1.0 else 0.0
         else:
             gripper_action = 1.0 if robot_gripper > 0.0 else 0.0
@@ -187,7 +276,7 @@ class VRPolicy:
         target_pos = pos_action + robot_pos
         target_euler = add_angles(euler_action, robot_euler)
         target_cartesian = np.concatenate([target_pos, target_euler])
-        target_gripper = self.vr_state["gripper"]
+        target_gripper = self.filtered_vr_state["gripper"]
 
         # Scale Appropriately #
         pos_action *= self.pos_action_gain
@@ -200,6 +289,7 @@ class VRPolicy:
         info_dict = {"target_cartesian_position": target_cartesian, "target_gripper_position": target_gripper}
         action = np.concatenate([lin_vel, rot_vel, [gripper_vel]])
         action = action.clip(-1, 1)
+        action = self._smooth_action(action)
 
         # Return #
         if include_info:

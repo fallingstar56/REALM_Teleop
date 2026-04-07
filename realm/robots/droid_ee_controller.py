@@ -55,7 +55,9 @@ class DroidEndEffectorController(LocomotionController, ManipulationController, G
             workspace_pose_limiter=None,
             max_effort=None,
             min_effort=None,
-            height_offset=0.87
+                height_offset=0.87,
+                cartesian_velocity_lin_limit=0.03,
+                cartesian_velocity_rot_limit=0.08,
     ):
         self._motor_type = motor_type.lower()
         self._use_impedances = True
@@ -67,6 +69,8 @@ class DroidEndEffectorController(LocomotionController, ManipulationController, G
         self._use_cc_compensation = use_cc_compensation
 
         self.height_offset = height_offset
+        self.cartesian_velocity_lin_limit = cartesian_velocity_lin_limit
+        self.cartesian_velocity_rot_limit = cartesian_velocity_rot_limit
 
         assert mode in IK_MODES, f"Invalid ik mode specified! Valid options are: {IK_MODES}, got: {mode}"
 
@@ -147,6 +151,12 @@ class DroidEndEffectorController(LocomotionController, ManipulationController, G
         elif self.mode == "cartesian_velocity":
             target_cartesian_pos_vel = command[:3]
             target_cartesian_rot_vel = command[3:6]
+            lin_vel_norm = th.linalg.norm(target_cartesian_pos_vel)
+            rot_vel_norm = th.linalg.norm(target_cartesian_rot_vel)
+            if lin_vel_norm > self.cartesian_velocity_lin_limit:
+                target_cartesian_pos_vel = target_cartesian_pos_vel * self.cartesian_velocity_lin_limit / lin_vel_norm
+            if rot_vel_norm > self.cartesian_velocity_rot_limit:
+                target_cartesian_rot_vel = target_cartesian_rot_vel * self.cartesian_velocity_rot_limit / rot_vel_norm
         else:  # pose_delta_ori control
             # Grab dori and compute target ori
             target_rpy_relative = command[3:6]

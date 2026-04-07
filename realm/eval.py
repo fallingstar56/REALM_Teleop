@@ -53,6 +53,14 @@ SUPPORTED_ACTION_SOURCES = ["policy", "teleop"]
 # policy: get actions from a model inference server
 # teleop: get actions from  OCulus VR controller teleoperation (currently only supports DROID EE controller config with cartesian velocity control)
 
+TELEOP_SELF_COLLISION_SCALE = 0.35
+TELEOP_ENV_COLLISION_SCALE = 0.2
+TELEOP_COLLISION_ROT_SCALE = 0.5
+TELEOP_STALL_LINEAR_ACTION_NORM = 0.45
+TELEOP_STALL_EE_DELTA = 0.002
+TELEOP_STALL_STEPS = 3
+TELEOP_STALL_ACTION_SCALE = 0.3
+
 def set_sim_config(rendering_mode=None, robot="DROID"):
     if robot == "WidowX": # TODO: just read this from the yamls...
         gm.DEFAULT_SIM_STEP_FREQ = 5
@@ -208,6 +216,8 @@ def evaluate(
             drops = 0
             was_grasping = False
             restart_requested = False
+            teleop_stall_steps = 0
+            prev_cartesian_position = None
 
             while (not enforce_max_steps_limit or t < max_steps) and (not enforce_terminal_step_limit or terminal_steps > 0):
                 # Extract the relevant information from the observation for the model
@@ -221,6 +231,10 @@ def evaluate(
                 _ee_euler = Rot.from_quat(_ee_rot).as_euler('xyz')
                 _ee_pos_world = np.concatenate([_ee_pos, _ee_euler])
                 cartesian_position = env._world2robot(_ee_pos_world).astype(np.float32)
+                ee_translation_delta = 0.0 if prev_cartesian_position is None else float(
+                    np.linalg.norm(cartesian_position[:3] - prev_cartesian_position[:3])
+                )
+                prev_cartesian_position = cartesian_position.copy()
 
                 # Check for collisions
                 is_self_col, is_env_col = env.check_collisions()
@@ -290,6 +304,26 @@ def evaluate(
                     else:
                         action = controller._calculate_action(state_dict, False).astype(np.float32)
                         action = np.clip(action, -1.0, 1.0)
+                        if is_self_col or is_env_col:
+                            lin_scale = 1.0
+                            if is_self_col:
+                                lin_scale = min(lin_scale, TELEOP_SELF_COLLISION_SCALE)
+                            if is_env_col:
+                                lin_scale = min(lin_scale, TELEOP_ENV_COLLISION_SCALE)
+                            action[:3] *= lin_scale
+                            action[3:6] *= TELEOP_COLLISION_ROT_SCALE
+                            controller.reset_origin = True
+
+                        if np.linalg.norm(action[:3]) >= TELEOP_STALL_LINEAR_ACTION_NORM and ee_translation_delta <= TELEOP_STALL_EE_DELTA:
+                            teleop_stall_steps += 1
+                        else:
+                            teleop_stall_steps = 0
+
+                        if teleop_stall_steps >= TELEOP_STALL_STEPS:
+                            action[:3] *= TELEOP_STALL_ACTION_SCALE
+                            action[3:6] *= TELEOP_COLLISION_ROT_SCALE
+                            controller.reset_origin = True
+                            teleop_stall_steps = 0
             
                 if not no_record:
                     video_recorder.add_frame(base_im, wrist_im, base_im_second)
