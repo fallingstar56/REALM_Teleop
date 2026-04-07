@@ -270,7 +270,7 @@ def evaluate(
                 has_pose = controller._state["poses"] != {}
 
                 if ((not has_pose) or (not controller_info["controller_on"]) or (not controller_info["movement_enabled"])):
-                    action = np.zeros(7, dtype=np.float32)
+                    action = controller.get_idle_action()
                 else:
                     action = controller._calculate_action(state_dict, False).astype(np.float32)
                     action = np.clip(action, -1.0, 1.0)

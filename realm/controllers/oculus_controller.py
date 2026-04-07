@@ -25,6 +25,8 @@ class VRPolicy:
         pos_action_gain: float = 5,
         rot_action_gain: float = 2,
         gripper_action_gain: float = 3,
+        gripper_open_threshold: float = 0.35,
+        gripper_close_threshold: float = 0.65,
         rmat_reorder: list = [-2, -1, -3, 4],
     ):
         self.oculus_reader = OculusReader()
@@ -36,6 +38,8 @@ class VRPolicy:
         self.pos_action_gain = pos_action_gain
         self.rot_action_gain = rot_action_gain
         self.gripper_action_gain = gripper_action_gain
+        self.gripper_open_threshold = gripper_open_threshold
+        self.gripper_close_threshold = gripper_close_threshold
         self.global_to_env_mat = vec_to_reorder_mat(rmat_reorder)
         self.controller_id = "r" if right_controller else "l"
         self.reset_orientation = True
@@ -56,6 +60,25 @@ class VRPolicy:
         self.robot_origin = None
         self.vr_origin = None
         self.vr_state = None
+        self.gripper_target = 0.0
+        self.last_gripper_action = 1.0
+
+    def _get_trigger_key(self):
+        return "rightTrig" if self.controller_id == "r" else "leftTrig"
+
+    def _get_trigger_value(self):
+        trigger_value = self._state["buttons"].get(self._get_trigger_key(), (0.0,))
+        if isinstance(trigger_value, tuple):
+            return float(trigger_value[0])
+        return float(trigger_value)
+
+    def _update_gripper_target(self):
+        trigger_value = self._get_trigger_value()
+        if trigger_value >= self.gripper_close_threshold:
+            self.gripper_target = 1.0
+        elif trigger_value <= self.gripper_open_threshold:
+            self.gripper_target = 0.0
+        return trigger_value, self.gripper_target
 
     def _update_internal_state(self, num_wait_sec=5, hz=50):
         last_read_time = time.time()
@@ -103,9 +126,14 @@ class VRPolicy:
         rot_mat = self.global_to_env_mat @ self.vr_to_global_mat @ rot_mat
         vr_pos = self.spatial_coeff * rot_mat[:3, 3]
         vr_quat = rmat_to_quat(rot_mat[:3, :3])
-        vr_gripper = self._state["buttons"]["rightTrig"][0]
+        vr_gripper_raw, vr_gripper = self._update_gripper_target()
 
-        self.vr_state = {"pos": vr_pos, "quat": vr_quat, "gripper": vr_gripper}
+        self.vr_state = {
+            "pos": vr_pos,
+            "quat": vr_quat,
+            "gripper": vr_gripper,
+            "gripper_raw": vr_gripper_raw,
+        }
 
     def _limit_velocity(self, lin_vel, rot_vel, gripper_vel):
         """Scales down the linear and angular magnitudes of the action"""
@@ -149,8 +177,11 @@ class VRPolicy:
         quat_action = quat_diff(target_quat_offset, robot_quat_offset)
         euler_action = quat_to_euler(quat_action)
 
-        # Calculate Gripper Action #
-        gripper_action = self.vr_state["gripper"] - robot_gripper
+        # Positive command opens the binary gripper, negative command closes it.
+        if self.vr_state["gripper"] >= 0.5:
+            gripper_action = -1.0 if robot_gripper < 1.0 else 0.0
+        else:
+            gripper_action = 1.0 if robot_gripper > 0.0 else 0.0
 
         # Calculate Desired Pose #
         target_pos = pos_action + robot_pos
@@ -163,6 +194,7 @@ class VRPolicy:
         euler_action *= self.rot_action_gain
         gripper_action *= self.gripper_action_gain
         lin_vel, rot_vel, gripper_vel = self._limit_velocity(pos_action, euler_action, gripper_action)
+        self.last_gripper_action = float(gripper_vel)
 
         # Prepare Return Values #
         info_dict = {"target_cartesian_position": target_cartesian, "target_gripper_position": target_gripper}
@@ -174,6 +206,11 @@ class VRPolicy:
             return action, info_dict
         else:
             return action
+
+    def get_idle_action(self):
+        action = np.zeros(7, dtype=np.float32)
+        action[-1] = self.last_gripper_action
+        return action
 
     def get_info(self):
         return {
