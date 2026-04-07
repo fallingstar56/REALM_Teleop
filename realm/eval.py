@@ -150,6 +150,7 @@ def evaluate(
     results = []
     start_repeat = 0
     results_filename = None
+    effective_repeats = 1 if action_source == "teleop" else repeats
 
     if resume:
         potential_csv = os.path.join(log_dir, "reports", f"{task}_{perturbations[0]}.csv")
@@ -164,7 +165,7 @@ def evaluate(
         else:
             og.log.info(f"Resume requested but no report found. Starting fresh.")
 
-    for run_id in range(repeats):
+    for run_id in range(effective_repeats):
         # ------------------------ pre-configure each run --------------------------------
         # seed = 1234 + run_id
         # random.seed(seed)
@@ -191,6 +192,7 @@ def evaluate(
         task_progression_timestamps = []
         terminal_steps = 15
         enforce_terminal_step_limit = action_source != "teleop"
+        enforce_max_steps_limit = action_source != "teleop"
 
         ee_poses = []
         collisions_self = 0
@@ -204,7 +206,7 @@ def evaluate(
         if action_source == "teleop":
             controller = VRPolicy()
 
-        while t < max_steps and (not enforce_terminal_step_limit or terminal_steps > 0):
+        while (not enforce_max_steps_limit or t < max_steps) and (not enforce_terminal_step_limit or terminal_steps > 0):
             # Extract the relevant information from the observation for the model
             base_im, base_depth, base_im_second, base_depth_second, wrist_im, robot_state, gripper_state = extract_from_obs(obs, robot_name=env.robot.name)
             
