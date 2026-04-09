@@ -4,7 +4,7 @@ import numpy as np
 from .oculus_reader.oculus_reader.reader import OculusReader
 
 from .subprocess_utils import run_threaded_command
-from .transformations import add_angles, euler_to_quat, quat_diff, quat_to_euler, rmat_to_quat, quat_to_rmat
+from .transformations import add_angles, euler_to_quat, quat_diff, quat_to_euler, rmat_to_quat
 
 def vec_to_reorder_mat(vec):
     X = np.zeros((len(vec), len(vec)))
@@ -148,10 +148,6 @@ class VRPolicy:
             gripper_vel = gripper_vel * self.max_gripper_vel / gripper_vel_norm
         return lin_vel, rot_vel, gripper_vel
 
-    def _align_target_offset_with_robot_view(self, target_pos_offset, robot_quat):
-        robot_rot_mat = quat_to_rmat(robot_quat)
-        return robot_rot_mat @ target_pos_offset
-
     def _calculate_action(self, state_dict, include_info=False):
         # Read Sensor #
         if self.update_sensor:
@@ -173,11 +169,10 @@ class VRPolicy:
         # Calculate Positional Action #
         robot_pos_offset = robot_pos - self.robot_origin["pos"]
         target_pos_offset = self.vr_state["pos"] - self.vr_origin["pos"]
-        target_pos_offset_robot = self._align_target_offset_with_robot_view(target_pos_offset, robot_quat)
-        pos_action = target_pos_offset_robot - robot_pos_offset
-        robot_quat_offset = quat_diff(robot_quat, self.robot_origin["quat"])
+        pos_action = target_pos_offset - robot_pos_offset
 
         # Calculate Euler Action #
+        robot_quat_offset = quat_diff(robot_quat, self.robot_origin["quat"])
         target_quat_offset = quat_diff(self.vr_state["quat"], self.vr_origin["quat"])
         quat_action = quat_diff(target_quat_offset, robot_quat_offset)
         euler_action = quat_to_euler(quat_action)
@@ -189,7 +184,7 @@ class VRPolicy:
             gripper_action = -1.0 if robot_gripper < 1.0 else 0.0
 
         # Calculate Desired Pose #
-        target_pos = self.robot_origin["pos"] + target_pos_offset_robot
+        target_pos = pos_action + robot_pos
         target_euler = add_angles(euler_action, robot_euler)
         target_cartesian = np.concatenate([target_pos, target_euler])
         target_gripper = self.vr_state["gripper"]
