@@ -69,7 +69,7 @@ class VRPolicy:
         self.robot_origin = None
         self.vr_origin = None
         self.vr_state = None
-        self.gripper_target = 1.0
+        self.gripper_target = 0.0
         self.last_gripper_action = 1.0
 
     def _get_trigger_key(self):
@@ -189,11 +189,11 @@ class VRPolicy:
         quat_action = quat_diff(target_quat_offset, robot_quat_offset)
         euler_action = quat_to_euler(quat_action)
 
-        # Positive command opens the gripper, negative command closes it.
+        # Positive command opens the binary gripper, negative command closes it.
         if self.vr_state["gripper"] >= 0.5:
-            gripper_action = 1.0 if robot_gripper > 0.0 else 0.0
-        else:
             gripper_action = -1.0 if robot_gripper < 1.0 else 0.0
+        else:
+            gripper_action = 1.0 if robot_gripper > 0.0 else 0.0
 
         # Calculate Desired Pose #
         target_pos = pos_action + robot_pos
