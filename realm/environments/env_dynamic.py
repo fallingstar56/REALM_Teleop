@@ -310,7 +310,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.ee_control = cfg_robot["robots"][0].get("ee_control", False)
         cfg_robot["robots"][0]["position"] = robot_pos
         cfg_robot["robots"][0]["orientation"] = omnigibson_transform_utils.euler2quat(
-            torch.tensor(robot_rot, dtype=torch.float32)).tolist()
+            torch.tensor(robot_rot, dtype=torch.float32)).tolist()  
         cfg_robot["robots"][0]["fixed_base"] = True
 
         reset_joint_pos = np.zeros(cfg_robot["robots"][0]["dof"] if "dof" in cfg_robot["robots"][0] else DROID_DEFAULT_DOF)
