@@ -14,6 +14,15 @@ def vec_to_reorder_mat(vec):
     return X
 
 
+def rotate_world_delta_to_robot(delta, robot_yaw):
+    rotated = np.array(delta, copy=True)
+    cos_y, sin_y = np.cos(robot_yaw), np.sin(robot_yaw)
+    dx, dy = rotated[0], rotated[1]
+    rotated[0] = cos_y * dx + sin_y * dy
+    rotated[1] = -sin_y * dx + cos_y * dy
+    return rotated
+
+
 class VRPolicy:
     def __init__(
         self,
@@ -169,6 +178,9 @@ class VRPolicy:
         # Calculate Positional Action #
         robot_pos_offset = robot_pos - self.robot_origin["pos"]
         target_pos_offset = self.vr_state["pos"] - self.vr_origin["pos"]
+        robot_base_yaw = state_dict.get("robot_base_yaw")
+        if robot_base_yaw is not None:
+            target_pos_offset = rotate_world_delta_to_robot(target_pos_offset, robot_base_yaw)
         pos_action = target_pos_offset - robot_pos_offset
 
         # Calculate Euler Action #
