@@ -22,17 +22,12 @@ class VRPolicy:
         max_rot_vel: float = 1,
         max_gripper_vel: float = 1,
         spatial_coeff: float = 1,
-        pos_action_gain: float = 3,
-        rot_action_gain: float = 1.5,
+        pos_action_gain: float = 5,
+        rot_action_gain: float = 2,
         gripper_action_gain: float = 3,
         gripper_open_threshold: float = 0.35,
         gripper_close_threshold: float = 0.65,
         rmat_reorder: list = [-2, -1, -3, 4],
-        action_ema_alpha: float = 0.3,
-        max_action_delta: float = 0.15,
-        vr_pos_deadband: float = 0.002,
-        vr_pos_outlier_threshold: float = 0.15,
-        vr_rot_outlier_threshold: float = 0.5,
     ):
         self.oculus_reader = OculusReader()
         self.vr_to_global_mat = np.eye(4)
@@ -45,11 +40,6 @@ class VRPolicy:
         self.gripper_action_gain = gripper_action_gain
         self.gripper_open_threshold = gripper_open_threshold
         self.gripper_close_threshold = gripper_close_threshold
-        self.action_ema_alpha = action_ema_alpha
-        self.max_action_delta = max_action_delta
-        self.vr_pos_deadband = vr_pos_deadband
-        self.vr_pos_outlier_threshold = vr_pos_outlier_threshold
-        self.vr_rot_outlier_threshold = vr_rot_outlier_threshold
         self.global_to_env_mat = vec_to_reorder_mat(rmat_reorder)
         self.controller_id = "r" if right_controller else "l"
         self.reset_orientation = True
@@ -76,8 +66,6 @@ class VRPolicy:
         self.vr_prev_quat = None
         self.accumulated_pos_offset = None
         self.accumulated_quat_offset = None
-        self.last_action = np.zeros(7)
-        self.smoothed_action = np.zeros(7)
 
     def _get_trigger_key(self):
         return "rightTrig" if self.controller_id == "r" else "leftTrig"
@@ -185,25 +173,12 @@ class VRPolicy:
             self.accumulated_pos_offset = np.zeros(3)
             self.accumulated_quat_offset = np.array([0., 0., 0., 1.])
             self.reset_origin = False
-            self.last_action = np.zeros(7)
-            self.smoothed_action = np.zeros(7)
 
         # Compute VR incremental changes since last step
         vr_pos_inc = self.vr_state["pos"] - self.vr_prev_pos
         vr_quat_inc = quat_diff(self.vr_state["quat"], self.vr_prev_quat)
         self.vr_prev_pos = self.vr_state["pos"].copy()
         self.vr_prev_quat = self.vr_state["quat"].copy()
-
-        # Deadband: ignore tiny VR jitter
-        if np.linalg.norm(vr_pos_inc) < self.vr_pos_deadband:
-            vr_pos_inc = np.zeros(3)
-
-        # Outlier rejection: discard VR tracking jumps
-        if np.linalg.norm(vr_pos_inc) > self.vr_pos_outlier_threshold:
-            vr_pos_inc = np.zeros(3)
-        vr_rot_inc_angle = np.linalg.norm(quat_to_euler(vr_quat_inc))
-        if vr_rot_inc_angle > self.vr_rot_outlier_threshold:
-            vr_quat_inc = np.array([0., 0., 0., 1.])
 
         # Rotate increments by full EE orientation for first-person camera alignment
         # Using only yaw was insufficient when the gripper has non-zero roll/pitch,
@@ -251,16 +226,6 @@ class VRPolicy:
         info_dict = {"target_cartesian_position": target_cartesian, "target_gripper_position": target_gripper}
         action = np.concatenate([lin_vel, rot_vel, [gripper_vel]])
         action = action.clip(-1, 1)
-
-        # EMA smoothing: blend with previous smoothed action
-        self.smoothed_action = self.action_ema_alpha * action + (1 - self.action_ema_alpha) * self.smoothed_action
-
-        # Rate limiting: clamp step-to-step change
-        action_delta = self.smoothed_action - self.last_action
-        action_delta[:6] = np.clip(action_delta[:6], -self.max_action_delta, self.max_action_delta)
-        action = self.last_action + action_delta
-        action = action.clip(-1, 1)
-        self.last_action = action.copy()
 
         # Return #
         if include_info:
