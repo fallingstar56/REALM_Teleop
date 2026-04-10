@@ -27,7 +27,7 @@ def rmat_to_quat(rot_mat, degrees=False):
 
 
 def quat_to_rmat(quat, degrees=False):
-    return R.from_quat(quat, degrees=degrees).as_matrix()
+    return R.from_quat(quat).as_matrix()
 
 
 ### Subtractions ###
