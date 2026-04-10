@@ -4,7 +4,7 @@ import numpy as np
 from .oculus_reader.oculus_reader.reader import OculusReader
 
 from .subprocess_utils import run_threaded_command
-from .transformations import add_angles, add_quats, euler_to_quat, quat_diff, quat_to_euler, rmat_to_quat
+from .transformations import add_angles, add_quats, euler_to_quat, euler_to_rmat, quat_diff, quat_to_euler, rmat_to_quat
 
 def vec_to_reorder_mat(vec):
     X = np.zeros((len(vec), len(vec)))
@@ -180,17 +180,15 @@ class VRPolicy:
         self.vr_prev_pos = self.vr_state["pos"].copy()
         self.vr_prev_quat = self.vr_state["quat"].copy()
 
-        # Rotate increments by current EE yaw for first-person camera alignment
-        ee_yaw = robot_euler[2]
-        cos_y, sin_y = np.cos(ee_yaw), np.sin(ee_yaw)
-        rotated_pos_inc = np.array([
-            cos_y * vr_pos_inc[0] - sin_y * vr_pos_inc[1],
-            sin_y * vr_pos_inc[0] + cos_y * vr_pos_inc[1],
-            vr_pos_inc[2]
-        ])
-        yaw_quat = euler_to_quat(np.array([0., 0., ee_yaw]))
-        yaw_quat_inv = euler_to_quat(np.array([0., 0., -ee_yaw]))
-        rotated_quat_inc = add_quats(add_quats(yaw_quat, vr_quat_inc), yaw_quat_inv)
+        # Rotate increments by full EE orientation for first-person camera alignment
+        # Using only yaw was insufficient when the gripper has non-zero roll/pitch,
+        # causing misalignment or reversal in certain poses.
+        robot_rmat = euler_to_rmat(robot_euler)
+        rotated_pos_inc = robot_rmat @ vr_pos_inc
+
+        ee_quat = euler_to_quat(robot_euler)
+        ee_quat_inv = quat_diff(np.array([0., 0., 0., 1.]), ee_quat)
+        rotated_quat_inc = add_quats(add_quats(ee_quat, vr_quat_inc), ee_quat_inv)
 
         # Accumulate rotated offsets
         self.accumulated_pos_offset += rotated_pos_inc
