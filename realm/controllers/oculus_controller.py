@@ -180,6 +180,20 @@ class VRPolicy:
         self.vr_prev_pos = self.vr_state["pos"].copy()
         self.vr_prev_quat = self.vr_state["quat"].copy()
 
+        # Compensate for robot base yaw: the VR-env frame was calibrated at yaw=pi,
+        # so for other base orientations we rotate VR increments by Rz(pi - base_yaw)
+        # to map them from the VR-env frame into the current robot-local frame.
+        robot_base_yaw = state_dict.get("robot_base_yaw", np.pi)
+        correction_yaw = np.pi - robot_base_yaw
+        cos_c, sin_c = np.cos(correction_yaw), np.sin(correction_yaw)
+        Rz_corr = np.array([[cos_c, -sin_c, 0.],
+                            [sin_c,  cos_c, 0.],
+                            [0.,     0.,    1.]])
+        vr_pos_inc = Rz_corr @ vr_pos_inc
+        q_corr = euler_to_quat([0., 0., correction_yaw])
+        q_corr_inv = quat_diff(np.array([0., 0., 0., 1.]), q_corr)
+        vr_quat_inc = add_quats(add_quats(q_corr, vr_quat_inc), q_corr_inv)
+
         # Rotate increments by full EE orientation for first-person camera alignment
         # Using only yaw was insufficient when the gripper has non-zero roll/pitch,
         # causing misalignment or reversal in certain poses.
