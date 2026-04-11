@@ -28,6 +28,8 @@ class VRPolicy:
         gripper_open_threshold: float = 0.35,
         gripper_close_threshold: float = 0.65,
         rmat_reorder: list = [-2, -1, -3, 4],
+        max_pos_error: float = 0.1,
+        max_rot_error: float = 0.3,
     ):
         self.oculus_reader = OculusReader()
         self.vr_to_global_mat = np.eye(4)
@@ -40,6 +42,8 @@ class VRPolicy:
         self.gripper_action_gain = gripper_action_gain
         self.gripper_open_threshold = gripper_open_threshold
         self.gripper_close_threshold = gripper_close_threshold
+        self.max_pos_error = max_pos_error
+        self.max_rot_error = max_rot_error
         self.global_to_env_mat = vec_to_reorder_mat(rmat_reorder)
         self.controller_id = "r" if right_controller else "l"
         self.reset_orientation = True
@@ -152,6 +156,12 @@ class VRPolicy:
             gripper_vel = gripper_vel * self.max_gripper_vel / gripper_vel_norm
         return lin_vel, rot_vel, gripper_vel
 
+    def _clip_tracking_error(self, error, max_error):
+        error_norm = np.linalg.norm(error)
+        if error_norm > max_error:
+            error = error * max_error / error_norm
+        return error
+
     def _calculate_action(self, state_dict, include_info=False):
         # Read Sensor #
         if self.update_sensor:
@@ -197,11 +207,18 @@ class VRPolicy:
         # Calculate Positional Action #
         robot_pos_offset = robot_pos - self.robot_origin["pos"]
         pos_action = self.accumulated_pos_offset - robot_pos_offset
+        # Cap the target tracking error so blocked motion does not build up a backlog
+        # that later releases as a sudden compensating surge.
+        pos_action = self._clip_tracking_error(pos_action, self.max_pos_error)
+        self.accumulated_pos_offset = robot_pos_offset + pos_action
 
         # Calculate Euler Action #
         robot_quat_offset = quat_diff(robot_quat, self.robot_origin["quat"])
         quat_action = quat_diff(self.accumulated_quat_offset, robot_quat_offset)
         euler_action = quat_to_euler(quat_action)
+        euler_action = self._clip_tracking_error(euler_action, self.max_rot_error)
+        quat_action = euler_to_quat(euler_action)
+        self.accumulated_quat_offset = add_quats(quat_action, robot_quat_offset)
 
         # Positive command opens the gripper, negative command closes it.
         if self.vr_state["gripper"] >= 0.5:
