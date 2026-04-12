@@ -179,7 +179,7 @@ def evaluate(
         controller = None
         last_reset_pressed = False
         if action_source == "teleop":
-            controller = VRPolicy()
+            controller = VRPolicy(robot_base_yaw=env.robot_rot_rad[2])
 
         while True:
             timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H:%M:%S")

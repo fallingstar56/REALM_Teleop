@@ -28,6 +28,7 @@ class VRPolicy:
         gripper_open_threshold: float = 0.35,
         gripper_close_threshold: float = 0.65,
         rmat_reorder: list = [-2, -1, -3, 4],
+        robot_base_yaw: float = np.pi,
     ):
         self.oculus_reader = OculusReader()
         self.vr_to_global_mat = np.eye(4)
@@ -40,7 +41,18 @@ class VRPolicy:
         self.gripper_action_gain = gripper_action_gain
         self.gripper_open_threshold = gripper_open_threshold
         self.gripper_close_threshold = gripper_close_threshold
-        self.global_to_env_mat = vec_to_reorder_mat(rmat_reorder)
+        # rmat_reorder was calibrated for robot_base_yaw = pi (180 deg).
+        # Apply Rz(pi - yaw) correction so VR increments land in the
+        # actual robot-local frame for any base yaw.
+        base_env_mat = vec_to_reorder_mat(rmat_reorder)
+        correction_angle = np.pi - robot_base_yaw
+        cos_c, sin_c = np.cos(correction_angle), np.sin(correction_angle)
+        yaw_correction = np.eye(len(rmat_reorder))
+        yaw_correction[0, 0] = cos_c
+        yaw_correction[0, 1] = -sin_c
+        yaw_correction[1, 0] = sin_c
+        yaw_correction[1, 1] = cos_c
+        self.global_to_env_mat = yaw_correction @ base_env_mat
         self.controller_id = "r" if right_controller else "l"
         self.reset_orientation = True
         self.reset_state()
