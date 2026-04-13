@@ -229,7 +229,7 @@ def evaluate(
     results = []
     start_repeat = 0
     results_filename = None
-    effective_repeats = 1 if action_source == "teleop" else repeats
+    effective_repeats = repeats
 
     if resume:
         potential_csv = os.path.join(log_dir, "reports", f"{task}_{perturbations[0]}.csv")
@@ -257,7 +257,7 @@ def evaluate(
 
         controller = None
         last_reset_pressed = False
-        last_exit_pressed = False
+        last_save_pressed = False
         if action_source == "teleop":
             controller = VRPolicy(robot_base_yaw=env.robot_rot_rad[2])
 
@@ -310,7 +310,7 @@ def evaluate(
             drops = 0
             was_grasping = False
             restart_requested = False
-            exit_requested = False
+            save_requested = False
 
             while (not enforce_max_steps_limit or t < max_steps) and (not enforce_terminal_step_limit or terminal_steps > 0):
                 # Extract the relevant information from the observation for the model
@@ -387,9 +387,9 @@ def evaluate(
                     reset_triggered = reset_pressed and not last_reset_pressed
                     last_reset_pressed = reset_pressed
 
-                    exit_pressed = controller_info["failure"]
-                    exit_triggered = exit_pressed and not last_exit_pressed
-                    last_exit_pressed = exit_pressed
+                    save_pressed = controller_info["failure"]
+                    save_triggered = save_pressed and not last_save_pressed
+                    last_save_pressed = save_pressed
 
                     if reset_triggered:
                         og.log.info("Teleop reset requested from BUTTON A. Restarting current rollout.")
@@ -397,9 +397,9 @@ def evaluate(
                         restart_requested = True
                         break
 
-                    if exit_triggered:
-                        og.log.info("Teleop save requested from BUTTON B. Finalizing current rollout.")
-                        exit_requested = True
+                    if save_triggered:
+                        og.log.info("Teleop save requested from BUTTON B. Finalizing current rollout and resetting.")
+                        save_requested = True
                         break
 
                     has_pose = controller._state["poses"] != {}
@@ -460,12 +460,12 @@ def evaluate(
                 _cleanup_rollout_recording(video_recorder=video_recorder, frames_file=frames_f, info_dir=info_dir, discard_info=True)
                 continue
 
-            if exit_requested and len(qpos) == 0:
-                og.log.warning("Teleop save requested before any samples were collected. Exiting without writing recorded files.")
+            if save_requested and len(qpos) == 0:
+                og.log.warning("Teleop save requested before any samples were collected. Resetting without writing recorded files.")
                 _cleanup_rollout_recording(video_recorder=video_recorder, frames_file=frames_f, info_dir=info_dir, discard_info=True)
                 if client is not None:
                     client.reset()
-                break
+                continue
 
             og.log.info(f"DEBUG: Run finished: {time.perf_counter() - start:.4f}s")
             # ------------------------------------------------------------------------------
