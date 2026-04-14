@@ -59,6 +59,36 @@ SUPPORTED_ACTION_SOURCES = ["policy", "teleop"]
 RECORD_INTERVAL_SEC = 0.05
 
 
+def _get_next_saved_rollout_id(parent_dir, experiment_name):
+    if experiment_name is None:
+        return 0
+
+    max_saved_rollout_id = -1
+    prefix = f"{experiment_name}_"
+
+    if not os.path.isdir(parent_dir):
+        return 0
+
+    for entry_name in os.listdir(parent_dir):
+        entry_path = os.path.join(parent_dir, entry_name)
+        if not os.path.isdir(entry_path) or not entry_name.startswith(prefix):
+            continue
+
+        saved_rollout_id = entry_name[len(prefix):]
+        if saved_rollout_id.isdigit():
+            max_saved_rollout_id = max(max_saved_rollout_id, int(saved_rollout_id))
+
+    return max_saved_rollout_id + 1
+
+
+def _get_rollout_storage_dir(log_dir, action_source, experiment_name=None, experiment_root_dir=None, saved_rollout_id=None):
+    if action_source != "teleop" or experiment_name is None or saved_rollout_id is None:
+        return log_dir
+
+    parent_dir = experiment_root_dir if experiment_root_dir is not None else log_dir
+    return os.path.join(parent_dir, f"{experiment_name}_{saved_rollout_id}")
+
+
 def _ensure_uint8_hwc(img):
     img = np.asarray(img)
 
@@ -119,7 +149,14 @@ def _record_rollout_sample(
     frames_file.write(json.dumps(frame_obj, ensure_ascii=False) + "\n")
 
 
-def _cleanup_rollout_recording(video_recorder=None, frames_file=None, info_dir=None, discard_info=False):
+def _cleanup_rollout_recording(
+    video_recorder=None,
+    frames_file=None,
+    info_dir=None,
+    discard_info=False,
+    rollout_dir=None,
+    discard_rollout_dir=False,
+):
     if frames_file is not None and not frames_file.closed:
         frames_file.close()
 
@@ -128,6 +165,9 @@ def _cleanup_rollout_recording(video_recorder=None, frames_file=None, info_dir=N
 
     if discard_info and info_dir is not None and os.path.isdir(info_dir):
         shutil.rmtree(info_dir, ignore_errors=True)
+
+    if discard_rollout_dir and rollout_dir is not None and os.path.isdir(rollout_dir):
+        shutil.rmtree(rollout_dir, ignore_errors=True)
 
 def set_sim_config(rendering_mode=None, robot="DROID"):
     if robot == "WidowX": # TODO: just read this from the yamls...
@@ -172,7 +212,9 @@ def evaluate(
         rendering_mode=None,
         task_cfg_path=None,
         robot="DROID",
-        action_source="policy"
+        action_source="policy",
+        experiment_name=None,
+        experiment_root_dir=None,
 ):
     start = time.perf_counter()
     og.log.info(f"DEBUG: Begin eval: {time.perf_counter() - start:.4f}s")
@@ -198,9 +240,15 @@ def evaluate(
     perturbations = [SUPPORTED_PERTURBATIONS[perturbation_id]]
 
     os.makedirs(log_dir, exist_ok=True)
-    if not no_record:
-        os.makedirs(os.path.join(log_dir, "videos"), exist_ok=True)
-        os.makedirs(os.path.join(log_dir, "information"), exist_ok=True)
+    # if not no_record:
+    #     os.makedirs(os.path.join(log_dir, "videos"), exist_ok=True)
+    #     os.makedirs(os.path.join(log_dir, "information"), exist_ok=True)
+
+    next_saved_rollout_id = None
+    if action_source == "teleop" and experiment_name is not None:
+        teleop_rollout_parent_dir = experiment_root_dir if experiment_root_dir is not None else log_dir
+        os.makedirs(teleop_rollout_parent_dir, exist_ok=True)
+        next_saved_rollout_id = _get_next_saved_rollout_id(teleop_rollout_parent_dir, experiment_name)
 
     client = None
     if action_source == "policy":
@@ -231,18 +279,18 @@ def evaluate(
     results_filename = None
     effective_repeats = repeats
 
-    if resume:
-        potential_csv = os.path.join(log_dir, "reports", f"{task}_{perturbations[0]}.csv")
-        if os.path.exists(potential_csv):
-            results_filename = potential_csv
-            with open(results_filename, 'r') as f:
-                reader = csv.DictReader(f)
-                existing_results = list(reader)
-            results = existing_results
-            start_repeat = len(results)
-            og.log.info(f"Resuming run from repeat {start_repeat}. Using file: {results_filename}")
-        else:
-            og.log.info(f"Resume requested but no report found. Starting fresh.")
+    # if resume:
+    #     potential_csv = os.path.join(log_dir, "reports", f"{task}_{perturbations[0]}.csv")
+    #     if os.path.exists(potential_csv):
+    #         results_filename = potential_csv
+    #         with open(results_filename, 'r') as f:
+    #             reader = csv.DictReader(f)
+    #             existing_results = list(reader)
+    #         results = existing_results
+    #         start_repeat = len(results)
+    #         og.log.info(f"Resuming run from repeat {start_repeat}. Using file: {results_filename}")
+    #     else:
+    #         og.log.info(f"Resume requested but no report found. Starting fresh.")
 
     for run_id in range(effective_repeats):
         # ------------------------ pre-configure each run --------------------------------
@@ -264,7 +312,15 @@ def evaluate(
         while True:
             timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H:%M:%S")
             rollout_name = f"{timestamp}_{model_type}_rollout_{task}_{perturbations[0]}_{run_id}"
-            video_recorder = VideoRecorder(log_dir, timestamp, run_id, task, perturbations[0]) if not no_record else None
+            rollout_storage_dir = _get_rollout_storage_dir(
+                log_dir,
+                action_source=action_source,
+                experiment_name=experiment_name,
+                experiment_root_dir=experiment_root_dir,
+                saved_rollout_id=next_saved_rollout_id,
+            )
+            # video_recorder = VideoRecorder(rollout_storage_dir, timestamp, run_id, task, perturbations[0]) if not no_record else None
+            video_recorder = None
 
             qpos = []
             actions = []
@@ -280,7 +336,7 @@ def evaluate(
             # -------------------- Rollout loop --------------------
             obs, _ = env.reset()
             if not no_record:
-                info_dir = os.path.join(log_dir, "information", rollout_name)
+                info_dir = rollout_storage_dir
                 img_dir = os.path.join(info_dir, "image")
                 img_sec_dir = os.path.join(info_dir, "image_sec")
                 wrist_dir = os.path.join(info_dir, "wrist_image")
@@ -422,8 +478,7 @@ def evaluate(
                     executed_action = np.asarray(action, dtype=np.float32).copy()
 
                 if not no_record:
-                    video_recorder.add_frame(base_im, wrist_im, base_im_second)
-
+                    # video_recorder.add_frame(base_im, wrist_im, base_im_second)
                     current_time = time.perf_counter()
                     if (current_time - last_record_time) >= RECORD_INTERVAL_SEC:
                         last_record_time = current_time
@@ -457,12 +512,26 @@ def evaluate(
             if restart_requested:
                 if client is not None:
                     client.reset()
-                _cleanup_rollout_recording(video_recorder=video_recorder, frames_file=frames_f, info_dir=info_dir, discard_info=True)
+                _cleanup_rollout_recording(
+                    video_recorder=video_recorder,
+                    frames_file=frames_f,
+                    info_dir=info_dir,
+                    discard_info=True,
+                    rollout_dir=rollout_storage_dir,
+                    discard_rollout_dir=rollout_storage_dir != log_dir,
+                )
                 continue
 
             if save_requested and len(qpos) == 0:
                 og.log.warning("Teleop save requested before any samples were collected. Resetting without writing recorded files.")
-                _cleanup_rollout_recording(video_recorder=video_recorder, frames_file=frames_f, info_dir=info_dir, discard_info=True)
+                _cleanup_rollout_recording(
+                    video_recorder=video_recorder,
+                    frames_file=frames_f,
+                    info_dir=info_dir,
+                    discard_info=True,
+                    rollout_dir=rollout_storage_dir,
+                    discard_rollout_dir=rollout_storage_dir != log_dir,
+                )
                 if client is not None:
                     client.reset()
                 continue
@@ -546,19 +615,24 @@ def evaluate(
         
             results.append(result_entry)
 
-            if not no_record:
-                video_recorder.save_video(os.path.join(log_dir, "videos", rollout_name))
+            # if not no_record:
+            #     video_recorder.save_video(os.path.join(rollout_storage_dir, "videos", rollout_name))
 
             _cleanup_rollout_recording(video_recorder=video_recorder, frames_file=frames_f)
+
+            if action_source == "teleop" and rollout_storage_dir != log_dir:
+                # save_results([result_entry], os.path.join(rollout_storage_dir, "reports"), task, perturbations[0])
+                og.log.info(f"Saved teleop rollout artifacts to {rollout_storage_dir}")
+                next_saved_rollout_id += 1
 
             if client is not None:
                 client.reset()
 
-            results_filename = save_results(results, log_dir + "/reports", task, perturbations[0], filename=results_filename)
+            # results_filename = save_results(results, log_dir + "/reports", task, perturbations[0], filename=results_filename)
             break
 
     # ------------------------------------------------------------------------------
-    save_results(results, log_dir+"/reports", task, perturbations[0])
+    # save_results(results, log_dir+"/reports", task, perturbations[0])
     og.log.info("Done!")
     og.log.info(f"DEBUG: Done: {time.perf_counter() - start:.4f}s")
 

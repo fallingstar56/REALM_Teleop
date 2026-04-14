@@ -64,6 +64,8 @@ pip install /app/realm/controllers/oculus_reader/requirements.txt
 python /app/examples/02_evaluate.py --experiment_name “test” --action_source “teleop” --task_id 0
 ```
 
+In `teleop` mode, each successful `BUTTON B` save writes that rollout's recorded images, `task.json`, and `frames.jsonl` directly into a numbered subfolder named `<experiment_name>_<id>` under the experiment directory.
+
 Then you can use the VR controller to teleoperate the robot.
 
 # Tasks and Perturbations

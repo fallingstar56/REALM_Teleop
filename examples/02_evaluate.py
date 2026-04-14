@@ -1,4 +1,5 @@
 import argparse
+import os
 from realm.eval import evaluate
 import sys
 
@@ -39,10 +40,11 @@ if __name__ == "__main__":
             args.model_type = "teleop"
     #assert not (args.task_cfg_path and args.task_id), f"Either task --task_cfg_path or --task_id should be specified, but not both."
 
-    log_dir = args.log_dir if args.log_dir is not None else "/app/logs"
-    log_dir += f"/{args.experiment_name}"
-    log_dir += f"/{args.model_name}"
-    log_dir += f"/{args.run_id}" if args.run_id is not None else ""
+    base_log_dir = args.log_dir if args.log_dir is not None else "/app/logs"
+    experiment_root_dir = os.path.join(base_log_dir, args.experiment_name)
+    log_dir = os.path.join(experiment_root_dir, args.model_name)
+    if args.run_id is not None:
+        log_dir = os.path.join(log_dir, args.run_id)
 
     evaluate(
         task_id=args.task_id,
@@ -62,6 +64,8 @@ if __name__ == "__main__":
         task_cfg_path=args.task_cfg_path,
         robot=args.robot,
         action_source=args.action_source,
+        experiment_name=args.experiment_name,
+        experiment_root_dir=experiment_root_dir,
     )
     og.shutdown()
     sys.exit(0)
