@@ -7,9 +7,9 @@ task:
   reward_config: {}
 
 task_type: "open_drawer"
-instruction: "open the top drawer"
+instruction: "open the middle drawer"
 
-instruction_obj_to_replace: "top drawer"
+instruction_obj_to_replace: "middle drawer"
 instruction_target_to_replace: ""
 instruction_verb_to_replace: "open"
 
